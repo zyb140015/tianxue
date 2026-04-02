@@ -1,0 +1,25 @@
+export const colors = {
+  primary: '#6C5CE7',
+  primaryDark: '#4B38D3',
+  primaryLight: '#A79BFF',
+  secondary: '#9D8CFF',
+  tertiary: '#FF9BB2',
+  primarySoft: '#F1EEFF',
+  secondarySoft: '#EEE9FF',
+  tertiarySoft: '#FFE6EE',
+  background: '#F7F5FF',
+  backgroundSecondary: '#EFEBFF',
+  surface: '#FFFFFF',
+  surfaceMuted: '#F6F3FF',
+  surfaceStrong: '#ECE7FF',
+  text: '#1B1738',
+  textSecondary: '#716A99',
+  textOnPrimary: '#FFFFFF',
+  border: '#DDD8FF',
+  success: '#6C5CE7',
+  warning: '#FFB84D',
+  danger: '#FF6B7A',
+  shadow: 'rgba(92, 76, 196, 0.18)',
+} as const;
+
+export type AppColors = typeof colors;
