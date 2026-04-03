@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Button, Chip, ProgressBar, Surface, Text } from 'react-native-paper';
 
 import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { emptyStateCopy } from '@/constants/empty-state-copy';
-import { mockInterviewService } from '@/services/mock/mock-interview-service';
-import { questionService } from '@/services/mock/question-service';
+import { historyApiService } from '@/services/api/history-service';
+import { questionApiService as questionService } from '@/services/api/question-service';
 import type { Question } from '@/types';
 import { colors, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
@@ -24,12 +23,28 @@ export default function MockInterviewScreen() {
   const [remainingSeconds, setRemainingSeconds] = useState(defaultCountdownSeconds);
   const [hasStarted, setHasStarted] = useState(false);
   const [hasRecordedCurrentQuestion, setHasRecordedCurrentQuestion] = useState(false);
+  const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setShouldLoadScreenData(true);
+    });
+
+    return () => task.cancel();
+  }, []);
+
   const questionQuery = useQuery({
     queryKey: ['mock-question-initial'],
     queryFn: () => questionService.getRandomQuestion(),
+    enabled: shouldLoadScreenData,
   });
-  const recordsQuery = useQuery({ queryKey: ['mock-interview-records'], queryFn: mockInterviewService.getRecords });
-  const questionsQuery = useQuery({ queryKey: ['questions', 'mock-records'], queryFn: () => questionService.getQuestions() });
+  const recordsQuery = useQuery({ queryKey: ['mock-interview-records'], queryFn: historyApiService.getInterviewRecords, enabled: shouldLoadScreenData });
+  const recentRecordQuestionIds = Array.from(new Set((recordsQuery.data ?? []).slice(0, 3).map((record) => record.questionId)));
+  const recentRecordQuestionsQuery = useQuery({
+    queryKey: ['questions-batch', 'mock-records', recentRecordQuestionIds],
+    queryFn: () => questionService.getQuestionsByIds(recentRecordQuestionIds),
+    enabled: shouldLoadScreenData && recentRecordQuestionIds.length > 0,
+  });
   const markLearnedMutation = useMutation({
     mutationFn: (id: string) => questionService.markLearned(id),
     onSuccess: async () => {
@@ -71,11 +86,11 @@ export default function MockInterviewScreen() {
 
   const progress = useMemo(() => remainingSeconds / defaultCountdownSeconds, [remainingSeconds]);
 
-  if ((questionQuery.isLoading && !currentQuestion) || questionsQuery.isLoading) {
+  if ((questionQuery.isLoading && !currentQuestion) || recordsQuery.isLoading || recentRecordQuestionsQuery.isLoading) {
     return <LoadingState />;
   }
 
-  if (questionQuery.isError || recordsQuery.isError || questionsQuery.isError) {
+  if (questionQuery.isError || recordsQuery.isError || recentRecordQuestionsQuery.isError) {
     return <EmptyState title={emptyStateCopy.mockInterviewLoadFailed.title} description={emptyStateCopy.mockInterviewLoadFailed.description} />;
   }
 
@@ -84,14 +99,17 @@ export default function MockInterviewScreen() {
   }
 
   const question = currentQuestion;
-  const questionMap = new Map((questionsQuery.data ?? []).map((item) => [item.id, item]));
+  const questionMap = new Map(
+    (recentRecordQuestionsQuery.data ?? [])
+      .map((item) => [item.id, item] as const),
+  );
 
   const completeCurrentQuestion = async () => {
     if (!hasStarted || hasRecordedCurrentQuestion) {
       return;
     }
 
-    await mockInterviewService.addRecord({
+    await historyApiService.addInterviewRecord({
       questionId: question.id,
       duration: defaultCountdownSeconds - remainingSeconds,
     });
@@ -150,7 +168,7 @@ export default function MockInterviewScreen() {
           <ProgressBar progress={progress} style={[styles.progress, { backgroundColor: appColors.isDark ? '#332D52' : colors.primarySoft }]} color={appColors.isDark ? appColors.primaryLight : colors.primary} />
         </LinearGradient>
 
-        <Animated.View key={question.id} entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
+        <View key={question.id}>
           <Surface style={[styles.questionCard, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
             <View style={styles.headerRow}>
               <Chip compact style={[styles.cardChip, { backgroundColor: appColors.primarySoft }]} textStyle={[styles.cardChipText, { color: appColors.primaryDark }]}>随机题</Chip>
@@ -159,7 +177,7 @@ export default function MockInterviewScreen() {
             <Text variant="titleLarge" style={[styles.questionTitle, { color: appColors.text }]}>{question.title}</Text>
             <Text style={[styles.questionDescription, { color: appColors.textSecondary }]}>建议开口前先用 5 秒整理结构，再按模块表达答案，会比直接展开更稳。</Text>
           </Surface>
-        </Animated.View>
+        </View>
 
         <View style={styles.actions}>
           <Button mode="contained" buttonColor={appColors.primary} style={[styles.primaryButton, { shadowColor: appColors.shadow }]} onPress={() => void handleStart()} disabled={hasStarted || remainingSeconds <= 0}>

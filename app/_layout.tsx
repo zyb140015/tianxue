@@ -3,7 +3,6 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { PaperProvider } from 'react-native-paper';
-import 'react-native-reanimated';
 
 import { FeedbackSnackbar } from '@/components/common/feedback-snackbar';
 import { queryClient } from '@/lib/query-client';
@@ -38,6 +37,8 @@ export default function RootLayout() {
           <Stack.Screen name="question/[id]" options={{ headerShown: true, title: '题目详情' }} />
           <Stack.Screen name="stats/index" options={{ headerShown: true, title: '学习统计' }} />
           <Stack.Screen name="settings/index" options={{ headerShown: true, title: '设置' }} />
+          <Stack.Screen name="settings/privacy-policy" options={{ headerShown: true, title: '隐私政策' }} />
+          <Stack.Screen name="settings/user-agreement" options={{ headerShown: true, title: '用户协议' }} />
         </Stack>
         <FeedbackSnackbar />
       </QueryClientProvider>

@@ -1,0 +1,28 @@
+[
+  {
+    "title": "es6对函数做了哪些优化？",
+    "content": "...rest参数 箭头函数",
+    "answer": "...rest参数\n箭头函数\n\n---\n\n1.函数参数可以设置默认值\nfunction getUserCompanyName(name='defaultUser',company='defaultCompany'){\nreturn name+company\n}\n2.属性简写,属性的key和value相同可以进行简写\n3.rest参数(剩余参数)\n4.箭头函数  ()=>{}\n\n---\n\n默认参数，参数没传或传了undefined，才会使用默认参数\n不定参数（剩余参数）  ..arg\n箭头函数，更简洁，解决了this让人头大的问题，继承的上级上下文的this，也不能强行绑定this\n\n---\n\n箭头函数\n箭头函数是 ES6 引入的一种简化函数语法，它具有更短的语法形式和词法作用域绑定。箭头函数没有自己的 this 值，会继承外部作用域的 this 值，避免了传统函数中 this 绑定的问题。\n默认参数值\nES6 允许在函数参数声明中设置默认值，简化了函数调用时的参数传递。当调用函数时省略了对应参数的值时，将使用默认值作为参数值。\n扩展参数（rest参数）\n通过使用扩展参数（Rest 参数）语法，函数可以接受不定数量的参数，并将它们作为一个数组进行处理。这样可以方便地处理不确定数量的参数。\n解构赋值\nES6 引入了解构赋值语法，可以从数组或对象中快速提取值并赋给变量。这使得函数的参数和返回值的处理更加灵活和简洁。\n函数参数的扩展\nES6 允许在函数声明中使用展开操作符（Spread Operator）来展开数组或对象，将它们的元素或属性作为函数的参数传递。\n块级作用域\n通过使用 let 和 const 声明变量，可以创建块级作用域，避免了变量提升和全局命名冲突的问题。\n尾调用优化\nES6 引入了尾调用优化的概念，当函数的最后一步是调用另一个函数时，可以进行优化，避免额外的函数调用栈的增长。",
+    "difficulty": "medium",
+    "category": "JavaScript",
+    "categorySlug": "javascript",
+    "tags": [
+      "JavaScript"
+    ],
+    "sourceName": "haizlin/fe-interview",
+    "sourceUrl": "https://github.com/haizlin/fe-interview/issues/1309"
+  },
+  {
+    "title": "说说你对async/await的理解？",
+    "content": "对generator生成器函数的改造，* 用async代替，yeild用await代替，使其更语义化，并且自动执行next方法 结合promise，采用同步代码的形式写异步代码，更优雅地解决回调地狱问题",
+    "answer": "对generator生成器函数的改造，* 用async代替，yeild用await代替，使其更语义化，并且自动执行next方法\n结合promise，采用同步代码的形式写异步代码，更优雅地解决回调地狱问题\n\n---\n\nasync函数返回的是一个promise对象，它可以用then方法添加回调函数。\n当函数执行的时候一旦遇到await就会阻塞后面的代码，等待promise的resolve() 作为await的返回结果。\n\n---\n\nasync声明的函数会返回Promise\nawait只能在async函数内部使用，await会等待后面的Promise状态变为成功时返回resolve的参数，如果状态变为失败，会抛出异常。在等待结果的时候，会将执行权抛出，直到结果确定后，重新获取执行权，继续执行下一行代码，实现了异步函数的同步代码。\n\n---\n\n基本结构是这样的\nasync function test(){\n  await ...\n}\n\nawait后面可以是返回值或Promise对象，如果是Promise对象的话就需要等Promise完成之后才可以进行下面的操作。如果是值就不用等。\n\n---\n\nasync/await\nasync/await 是 ES2017（ES8）引入的一种用于处理异步操作的语法糖，它基于 Promise 对象提供了一种更直观、更易读的方式来编写异步代码。\n\n特点\nAsync函数\n通过在函数声明前加上 async 关键字，将函数标记为异步函数。异步函数在执行时会返回一个 Promise 对象。\nawait表达式\n在异步函数内部，可以使用 await 关键字来暂停异步函数的执行，等待一个 Promise 对象的解析结果。await 表达式会阻塞后续代码的执行，直到 Promise 对象被解析或拒绝。\n处理Promise对象\n通过使用 await 关键字，可以以同步的方式处理 Promise 对象，而不需要嵌套的回调函数或使用 .then() 方法。await 表达式返回 Promise 对象的解析值。\n\n优点\n可读性更好\nasync/await 语法以同步的方式编写异步代码，使得代码更易读、理解和维护，避免了回调地狱（callback hell）的问题\n错误处理更方便\n使用 try-catch 块可以方便地捕获和处理异步操作中的错误，使得错误处理更加简洁和可控。\n顺序化的异步操作\n使用 await 关键字可以按顺序执行异步操作，避免了回调函数中的嵌套和复杂的控制流程。\n\n使用场景\n异步操作\n用于处理异步操作，如网络请求、文件读写等，使得异步代码的编写和理解更加直观和简洁。\n错误处理\n通过使用 try-catch 块，可以方便地捕获和处理异步操作中的错误，提高代码的容错性。\n顺序化操作\n可以按照顺序执行多个异步操作，避免回调函数中的嵌套，使得代码逻辑更加清晰和可读。",
+    "difficulty": "medium",
+    "category": "JavaScript",
+    "categorySlug": "javascript",
+    "tags": [
+      "JavaScript"
+    ],
+    "sourceName": "haizlin/fe-interview",
+    "sourceUrl": "https://github.com/haizlin/fe-interview/issues/1310"
+  }
+]

@@ -1,8 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import React, { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Surface, Text } from 'react-native-paper';
 import { z } from 'zod';
 
@@ -19,8 +22,10 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginScreen() {
+  const queryClient = useQueryClient();
   const appColors = useAppColors();
   const login = useAuthStore((state) => state.login);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const {
     control,
     handleSubmit,
@@ -35,7 +40,8 @@ export default function LoginScreen() {
 
   const onSubmit = handleSubmit(async (values) => {
     try {
-      await login(values.identifier);
+      await login(values.identifier, values.password);
+      await queryClient.invalidateQueries();
       showSuccessMessage('登录成功，开始今天的学习。');
       router.replace('/(tabs)');
     } catch {
@@ -106,16 +112,25 @@ export default function LoginScreen() {
             control={control}
             name="password"
             render={({ field: { onChange, onBlur, value } }) => (
-                <Input
-                  placeholder="请输入验证码或密码"
-                  placeholderTextColor={appColors.inputPlaceholder}
-                  secureTextEntry
-                autoCorrect={false}
-                onBlur={onBlur}
-                onChangeText={onChange}
-                value={value}
-                  style={[styles.input, { backgroundColor: appColors.inputBackground, borderColor: appColors.inputBorder, color: appColors.text }]}
-                />
+                <View style={styles.passwordInputWrapper}>
+                  <Input
+                    placeholder="请输入验证码或密码"
+                    placeholderTextColor={appColors.inputPlaceholder}
+                    secureTextEntry={!isPasswordVisible}
+                    autoCorrect={false}
+                    onBlur={onBlur}
+                    onChangeText={onChange}
+                    value={value}
+                    style={[styles.input, styles.passwordInput, { backgroundColor: appColors.inputBackground, borderColor: appColors.inputBorder, color: appColors.text }]}
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={isPasswordVisible ? '隐藏密码' : '显示密码'}
+                    onPress={() => setIsPasswordVisible((current) => !current)}
+                    style={styles.passwordToggle}>
+                    <MaterialCommunityIcons color={appColors.textSecondary} name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'} size={22} />
+                  </Pressable>
+                </View>
               )}
           />
           <HelperText type="error" visible={Boolean(errors.password)} style={styles.helperText}>
@@ -285,6 +300,19 @@ const styles = StyleSheet.create({
     paddingRight: 16,
     backgroundColor: '#F6F7FF',
     borderColor: '#E4E1F7',
+  },
+  passwordInputWrapper: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 52,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 16,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
   },
   helperText: {
     marginTop: -2,

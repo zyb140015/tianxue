@@ -1,0 +1,28 @@
+[
+  {
+    "title": "es6对函数做了哪些优化？",
+    "content": "",
+    "answer": "",
+    "difficulty": "medium",
+    "category": "JavaScript",
+    "categorySlug": "javascript",
+    "tags": [
+      "JavaScript"
+    ],
+    "sourceName": "haizlin/fe-interview",
+    "sourceUrl": "https://github.com/haizlin/fe-interview/issues/1309"
+  },
+  {
+    "title": "说说你对async/await的理解？",
+    "content": "",
+    "answer": "",
+    "difficulty": "medium",
+    "category": "JavaScript",
+    "categorySlug": "javascript",
+    "tags": [
+      "JavaScript"
+    ],
+    "sourceName": "haizlin/fe-interview",
+    "sourceUrl": "https://github.com/haizlin/fe-interview/issues/1310"
+  }
+]

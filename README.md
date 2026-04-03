@@ -2,12 +2,12 @@
 
 一个基于 **React Native + Expo** 的前端面试学习 App。
 
-当前阶段只做前端：
+当前阶段已进入前后端联调阶段：
 
-- 先完成页面与交互
-- 使用 mock 数据
-- 暂不接后端、数据库和真实鉴权
-- 为后续 API、数据库、用户系统预留清晰边界
+- React Native 前端已可运行
+- Go 后端已可运行
+- 部分核心模块已接真实 API
+- 仍保留少量学习型过渡实现与可继续打磨空间
 
 ---
 
@@ -38,14 +38,13 @@
 - 我的页面
 - 设置页
 
-### 当前不做
+### 当前仍未做
 
-- 真实登录注册
-- 后端接口
-- 数据库存储
 - 管理后台
 - AI 打分
 - 音视频面试
+- 完整生产级权限体系
+- 完整正式 migration 工具链
 
 ---
 
@@ -59,11 +58,13 @@
 - 首页、我的页、统计页联动
 - 设置页主题切换
 - 导出 / 导入本地数据（当前导入导出以 Web 端为主）
+- 前后端主链路联调（登录 / 题库 / 状态 / history / stats）
 
 更完整说明见：
 
 - `./功能总览.md`
 - `./API_CONTRACT.md`
+- `./FRONTEND_BACKEND_SMOKE_TEST.md`
 
 ---
 
@@ -193,6 +194,7 @@ src/
 - `目录结构脚手架说明.md`：项目目录与职责说明
 - `功能总览.md`：当前前端功能清单
 - `API_CONTRACT.md`：后端接口契约草案
+- `FRONTEND_BACKEND_SMOKE_TEST.md`：前后端联调检查清单
 
 ---
 
@@ -208,3 +210,82 @@ src/
 - NativeWind
 
 先把前端页面和 mock 跑通，再补后端。
+
+---
+
+## 打包与环境配置
+
+### API 地址配置
+
+当前项目已经支持按环境切换 API 地址，优先级如下：
+
+1. `EXPO_PUBLIC_API_BASE_URL`
+2. `app.json -> expo.extra.apiBaseUrl`
+3. 代码默认值
+
+当前默认值：
+
+- 开发环境：`https://xnyb.online/tianxue/api/v1`
+- 生产环境：`https://xnyb.online/tianxue/api/v1`
+
+> 注意：正式打包前，必须把生产环境地址改成你真实可访问的后端地址。
+
+### EAS 配置
+
+项目已包含 `eas.json`，提供三套 profile：
+
+- `development`
+- `preview`
+- `production`
+
+### 初始化 EAS
+
+先安装并登录：
+
+```bash
+npm install -g eas-cli
+eas login
+```
+
+### development 包
+
+适合开发调试：
+
+```bash
+eas build -p android --profile development
+eas build -p ios --profile development
+```
+
+### preview 包
+
+适合内部测试 / 预览：
+
+```bash
+eas build -p android --profile preview
+eas build -p ios --profile preview
+```
+
+### production 包
+
+适合正式发布：
+
+```bash
+eas build -p android --profile production
+eas build -p ios --profile production
+```
+
+### 本地运行 iOS
+
+如果本机已安装 Xcode 和 iOS Simulator runtime：
+
+```bash
+npm run ios
+```
+
+### 本地运行 Android
+
+如果本机已安装 Android Studio 和模拟器：
+
+```bash
+npm run android
+```

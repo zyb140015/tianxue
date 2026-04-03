@@ -1,16 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn } from 'react-native-reanimated';
 import { Avatar, Button, Chip, Surface, Text } from 'react-native-paper';
 
 import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
-import { emptyStateCopy } from '@/constants/empty-state-copy';
-import { mockInterviewService } from '@/services/mock/mock-interview-service';
-import { questionService } from '@/services/mock/question-service';
-import { recentViewedService } from '@/services/mock/recent-viewed-service';
-import { userService } from '@/services/mock/user-service';
+import { questionApiService as questionService } from '@/services/api/question-service';
+import { statsApiService } from '@/services/api/stats-service';
 import { colors, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
 import { showInfoMessage } from '@/utils/feedback';
@@ -28,31 +25,49 @@ function HomeSectionSkeleton({ appColors }: { appColors: ReturnType<typeof useAp
 
 export default function HomeScreen() {
   const appColors = useAppColors();
-  const userQuery = useQuery({ queryKey: ['user'], queryFn: userService.getCurrentUser });
-  const questionQuery = useQuery({ queryKey: ['recommended-question'], queryFn: questionService.getRecommendedQuestion });
-  const categoryQuery = useQuery({ queryKey: ['categories'], queryFn: questionService.getCategories });
-  const allQuestionsQuery = useQuery({ queryKey: ['questions', 'home-summary'], queryFn: () => questionService.getQuestions() });
-  const recordsQuery = useQuery({ queryKey: ['mock-interview-records'], queryFn: mockInterviewService.getRecords });
-  const recentViewedQuery = useQuery({ queryKey: ['recent-viewed-questions'], queryFn: recentViewedService.getRecords });
+  const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
 
-  if (userQuery.isLoading || questionQuery.isLoading || categoryQuery.isLoading || allQuestionsQuery.isLoading || recordsQuery.isLoading || recentViewedQuery.isLoading) {
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setShouldLoadScreenData(true);
+    });
+
+    return () => task.cancel();
+  }, []);
+
+  const categoryQuery = useQuery({ queryKey: ['categories'], queryFn: questionService.getCategories, enabled: shouldLoadScreenData });
+  const homeDashboardQuery = useQuery({ queryKey: ['stats-home'], queryFn: statsApiService.getHomeDashboard, enabled: shouldLoadScreenData });
+
+  if (categoryQuery.isLoading || homeDashboardQuery.isLoading) {
     return <LoadingState />;
   }
 
-  if (userQuery.isError || questionQuery.isError || categoryQuery.isError || allQuestionsQuery.isError || recordsQuery.isError || recentViewedQuery.isError) {
-    return <EmptyState title={emptyStateCopy.homeLoadFailed.title} description={emptyStateCopy.homeLoadFailed.description} />;
-  }
+  const categories = categoryQuery.data ?? [];
+  const dashboard = homeDashboardQuery.data;
+  const overview = dashboard?.overview;
+  const recommendedQuestion = dashboard?.recommendedQuestion ?? null;
+  const user = dashboard?.user ?? {
+    id: '0',
+    name: '同学',
+    avatar: '👨‍💻',
+    streakDays: 0,
+    learnedCount: 0,
+    favoriteCount: 0,
+  };
 
-  const learnedCount = allQuestionsQuery.data?.filter((question) => question.isLearned).length ?? 0;
-  const favoriteCount = allQuestionsQuery.data?.filter((question) => question.isFavorite).length ?? 0;
-  const needsReviewCount = allQuestionsQuery.data?.filter((question) => question.needsReview).length ?? 0;
-  const totalQuestionCount = allQuestionsQuery.data?.length ?? 0;
+  const learnedCount = overview?.learnedCount ?? 0;
+  const favoriteCount = overview?.favoriteCount ?? 0;
+  const needsReviewCount = overview?.needsReviewCount ?? 0;
+  const totalQuestionCount = overview?.totalQuestionCount ?? 0;
   const learningProgress = totalQuestionCount ? Math.round((learnedCount / totalQuestionCount) * 100) : 0;
-  const recentRecords = recordsQuery.data?.slice(0, 2) ?? [];
-  const recentViewed = recentViewedQuery.data?.slice(0, 2) ?? [];
-  const reviewQuestions = (allQuestionsQuery.data ?? []).filter((question) => question.needsReview).slice(0, 2);
-  const questionMap = new Map((allQuestionsQuery.data ?? []).map((question) => [question.id, question]));
-  const isRefreshingHome = questionQuery.isFetching || recordsQuery.isFetching || recentViewedQuery.isFetching;
+  const recentRecords = dashboard?.recentRecords ?? [];
+  const recentViewed = dashboard?.recentViewed ?? [];
+  const reviewQuestions = dashboard?.reviewQuestions ?? [];
+  const questionMap = new Map(
+    (dashboard?.recentQuestions ?? [])
+      .map((question) => [question.id, question] as const),
+  );
+  const isRefreshingHome = homeDashboardQuery.isFetching;
 
   return (
     <ScreenContainer>
@@ -67,7 +82,7 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.heroTextBlock}>
-            <Text variant="headlineMedium" style={styles.heroTitle}>你好，{userQuery.data?.name}</Text>
+            <Text variant="headlineMedium" style={styles.heroTitle}>你好，{user.name}</Text>
             <Text variant="bodyLarge" style={styles.heroSubtitle}>
               今天先刷高频题，再来一轮模拟，让学习过程更有节奏。
             </Text>
@@ -75,7 +90,7 @@ export default function HomeScreen() {
 
           <View style={styles.heroStatsRow}>
             <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{userQuery.data?.streakDays ?? 0}</Text>
+              <Text style={styles.heroStatValue}>{user.streakDays}</Text>
               <Text style={styles.heroStatLabel}>连续天数</Text>
             </View>
             <View style={styles.heroStat}>
@@ -93,29 +108,31 @@ export default function HomeScreen() {
           </View>
         </LinearGradient>
 
-        <Animated.View entering={FadeIn.duration(160)}>
+        <View>
         <Surface style={[styles.featureCard, { backgroundColor: appColors.surface, shadowColor: appColors.shadow, borderColor: appColors.border }]} elevation={0}>
           <View style={styles.sectionRow}>
             <View>
               <Text style={[styles.sectionEyebrow, { color: appColors.primary }]}>Featured Quiz</Text>
-              <Text variant="titleLarge" style={[styles.featureTitle, { color: appColors.text }]}>{questionQuery.data?.title}</Text>
+              <Text variant="titleLarge" style={[styles.featureTitle, { color: appColors.text }]}>{recommendedQuestion?.title ?? '暂无推荐题目'}</Text>
             </View>
             <View style={[styles.progressBadge, { backgroundColor: appColors.tertiarySoft }]}>
               <Text style={[styles.progressValue, { color: appColors.tertiary }]}>{learningProgress}%</Text>
             </View>
           </View>
-          <Text style={[styles.featureDescription, { color: appColors.textSecondary }]}>{questionQuery.data?.content}</Text>
+          <Text style={[styles.featureDescription, { color: appColors.textSecondary }]}>{recommendedQuestion?.content ?? '请先在后端补充更多题库数据。'}</Text>
           <View style={styles.featureFooter}>
             <Chip compact style={[styles.softChip, { backgroundColor: appColors.primarySoft }]} textStyle={[styles.softChipText, { color: appColors.primaryDark }]}>推荐路线</Chip>
             <Button mode="contained" buttonColor={appColors.primary} onPress={() => {
               showInfoMessage('已打开推荐题目。');
-              router.push({ pathname: '/question/[id]', params: { id: questionQuery.data?.id ?? '' } });
+              if (recommendedQuestion?.id) {
+                router.push({ pathname: '/question/[id]', params: { id: recommendedQuestion.id } });
+              }
             }}>
               开始学习
             </Button>
           </View>
         </Surface>
-        </Animated.View>
+        </View>
 
         <View style={styles.sectionRow}>
           <Text variant="titleMedium" style={[styles.sectionTitle, { color: appColors.text }]}>专题分类</Text>
@@ -125,7 +142,7 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.categoryGrid}>
-          {categoryQuery.data?.slice(0, 4).map((category, index) => (
+          {categories.slice(0, 4).map((category, index) => (
             <LinearGradient
               key={category.id}
               colors={appColors.isDark ? (index % 2 === 0 ? ['#35305A', '#40386A'] : ['#312B4F', '#3A345C']) : (index % 2 === 0 ? [colors.primarySoft, '#E8E2FF'] : [colors.surfaceStrong, '#E6E0FF'])}

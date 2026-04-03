@@ -5,6 +5,8 @@ import { deleteStorageItem, getStorageItem, setStorageItem } from './app-storage
 export type AuthSession = {
   identifier: string;
   loggedInAt: string;
+  token: string;
+  userId: string;
 };
 
 export async function getAuthSession() {
@@ -15,7 +17,17 @@ export async function getAuthSession() {
   }
 
   try {
-    return JSON.parse(rawValue) as AuthSession;
+    const parsedValue = JSON.parse(rawValue) as Partial<AuthSession>;
+
+    // 这里兼容旧版本本地 session。
+    //
+    // 旧前端只保存了 identifier / loggedInAt，没有 token。
+    // 现在既然后端已经接入 JWT，没有 token 的 session 就不能再视为有效登录态。
+    if (!parsedValue?.token || !parsedValue?.userId || !parsedValue?.identifier) {
+      return null;
+    }
+
+    return parsedValue as AuthSession;
   } catch {
     return null;
   }

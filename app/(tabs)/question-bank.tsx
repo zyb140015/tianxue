@@ -1,17 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn } from 'react-native-reanimated';
 import { Chip, IconButton, Searchbar, Surface, Text } from 'react-native-paper';
 
 import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { questionService } from '@/services/mock/question-service';
+import { questionApiService as questionService } from '@/services/api/question-service';
 import { getQuestionBankFilters, saveQuestionBankFilters } from '@/services/storage/question-bank-filter-storage';
 import { useFeedbackStore } from '@/store/use-feedback-store';
 import { colors, spacing, useAppColors } from '@/theme';
+
+const QUESTION_PAGE_SIZE = 20;
+const LOAD_MORE_THRESHOLD = 160;
 
 function QuestionBankSkeleton({ appColors }: { appColors: ReturnType<typeof useAppColors> }) {
   return (
@@ -194,10 +196,13 @@ export default function QuestionBankScreen() {
     router.replace('/(tabs)/question-bank');
   };
 
-  const questionQuery = useQuery({
-    queryKey: ['questions', selectedCategory, selectedDifficulty, selectedTag, selectedSort, search, favoriteOnly, unlearnedOnly, needsReviewOnly],
-    queryFn: () =>
-      questionService.getQuestions({
+  const questionQuery = useInfiniteQuery({
+    queryKey: ['questions', selectedCategory, selectedDifficulty, selectedTag, selectedSort, debouncedSearch, favoriteOnly, unlearnedOnly, needsReviewOnly],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      questionService.getQuestionPage({
+        page: pageParam,
+        pageSize: QUESTION_PAGE_SIZE,
         category: selectedCategory,
         difficulty: selectedDifficulty,
         tag: selectedTag,
@@ -207,6 +212,7 @@ export default function QuestionBankScreen() {
         unlearnedOnly,
         needsReviewOnly,
       }),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
   const categoryQuery = useQuery({ queryKey: ['categories'], queryFn: questionService.getCategories });
   const tagsQuery = useQuery({ queryKey: ['question-tags'], queryFn: questionService.getAvailableTags });
@@ -215,6 +221,7 @@ export default function QuestionBankScreen() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['questions'] }),
+        queryClient.invalidateQueries({ queryKey: ['question-pages'] }),
         queryClient.invalidateQueries({ queryKey: ['favorite-questions'] }),
         queryClient.invalidateQueries({ queryKey: ['question-detail'] }),
         queryClient.invalidateQueries({ queryKey: ['recommended-question'] }),
@@ -238,17 +245,43 @@ export default function QuestionBankScreen() {
     return <EmptyState title="题库加载失败" description="请稍后重试或重置筛选条件。" />;
   }
 
-  const isRefreshingQuestionList = isFilterTransitioning && questionQuery.isFetching;
+  const pagedQuestionData = questionQuery.data?.pages ?? [];
+  const questions = pagedQuestionData.flatMap((page) => page.items);
+  const totalQuestionCount = pagedQuestionData[0]?.total ?? 0;
+  const hasMoreQuestions = questionQuery.hasNextPage;
+  const isRefreshingQuestionList = isFilterTransitioning && questionQuery.isFetching && !questionQuery.isFetchingNextPage;
+  const isLoadingMoreQuestions = questionQuery.isFetchingNextPage;
+
+  const loadMoreQuestions = () => {
+    if (!hasMoreQuestions || isLoadingMoreQuestions) {
+      return;
+    }
+
+    void questionQuery.fetchNextPage();
+  };
+
+  const handleQuestionListScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!hasMoreQuestions || isRefreshingQuestionList) {
+      return;
+    }
+
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const remainingDistance = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+
+    if (remainingDistance <= LOAD_MORE_THRESHOLD) {
+      loadMoreQuestions();
+    }
+  };
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.container} onScroll={handleQuestionListScroll} scrollEventThrottle={16} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <Text variant="headlineMedium" style={[styles.heroTitle, { color: colors.textOnPrimary }]}>Question Bank</Text>
           <Text style={[styles.heroSubtitle, { color: 'rgba(255,255,255,0.82)' }]}>把筛选、搜索和收藏组合成一套更像产品的浏览体验。</Text>
           <View style={styles.heroStats}>
             <View style={styles.heroStatCard}>
-              <Text style={[styles.heroStatValue, { color: colors.textOnPrimary }]}>{questionQuery.data?.length ?? 0}</Text>
+              <Text style={[styles.heroStatValue, { color: colors.textOnPrimary }]}>{totalQuestionCount}</Text>
               <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.76)' }]}>当前结果</Text>
             </View>
             <View style={styles.heroStatCard}>
@@ -359,11 +392,11 @@ export default function QuestionBankScreen() {
 
         {isRefreshingQuestionList ? (
           <QuestionBankSkeleton appColors={appColors} />
-        ) : !questionQuery.data?.length ? (
+        ) : !questions.length ? (
           <EmptyState title="没有匹配题目" description="试试切换分类或修改搜索关键词。" />
         ) : (
-          <Animated.View entering={FadeIn.duration(160)} style={styles.list}>
-            {questionQuery.data.map((question, index) => (
+          <View style={styles.list}>
+            {questions.map((question, index) => (
               <Surface key={question.id} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
                 <View style={styles.cardTopRow}>
                   <View style={[styles.orderBadge, { backgroundColor: appColors.primarySoft }]}>
@@ -396,7 +429,14 @@ export default function QuestionBankScreen() {
                 </View>
               </Surface>
             ))}
-          </Animated.View>
+            <Text style={[styles.loadMoreHint, { color: appColors.textSecondary }]}>
+              {isLoadingMoreQuestions
+                ? '正在加载更多题目...'
+                : hasMoreQuestions
+                  ? `继续上拉加载更多（已显示 ${questions.length}/${totalQuestionCount}）`
+                  : `已显示全部 ${totalQuestionCount} 条题目`}
+            </Text>
+          </View>
         )}
       </ScrollView>
     </ScreenContainer>
@@ -504,6 +544,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 24,
+  },
+  loadMoreHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    paddingVertical: spacing.sm,
   },
   skeletonCard: {
     overflow: 'hidden',

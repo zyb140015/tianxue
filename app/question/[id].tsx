@@ -7,8 +7,8 @@ import { Button, Chip, Surface, Text } from 'react-native-paper';
 
 import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { emptyStateCopy } from '@/constants/empty-state-copy';
-import { recentViewedService } from '@/services/mock/recent-viewed-service';
-import { questionService } from '@/services/mock/question-service';
+import { historyApiService } from '@/services/api/history-service';
+import { questionApiService as questionService } from '@/services/api/question-service';
 import { colors, spacing, useAppColors } from '@/theme';
 import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
 
@@ -27,9 +27,10 @@ export default function QuestionDetailScreen() {
     queryFn: () => questionService.getRelatedQuestions(params.id),
     enabled: Boolean(params.id),
   });
-  const allQuestionsQuery = useQuery({
-    queryKey: ['questions', 'detail-navigation'],
-    queryFn: () => questionService.getQuestions(),
+  const navigationQuery = useQuery({
+    queryKey: ['question-navigation', params.id],
+    queryFn: () => questionService.getQuestionNavigation(params.id),
+    enabled: Boolean(params.id),
   });
   const toggleFavoriteMutation = useMutation({
     mutationFn: (id: string) => questionService.toggleFavorite(id),
@@ -70,15 +71,15 @@ export default function QuestionDetailScreen() {
 
   useEffect(() => {
     if (questionQuery.data?.id) {
-      void recentViewedService.addRecord(questionQuery.data.id);
+      void historyApiService.addViewedRecord(questionQuery.data.id);
     }
   }, [questionQuery.data?.id]);
 
-  if (questionQuery.isLoading || relatedQuestionsQuery.isLoading || allQuestionsQuery.isLoading) {
+  if (questionQuery.isLoading || relatedQuestionsQuery.isLoading || navigationQuery.isLoading) {
     return <LoadingState />;
   }
 
-  if (questionQuery.isError || relatedQuestionsQuery.isError || allQuestionsQuery.isError) {
+  if (questionQuery.isError || relatedQuestionsQuery.isError || navigationQuery.isError) {
     return <EmptyState title={emptyStateCopy.commonLoadFailed.title} description={emptyStateCopy.commonLoadFailed.description} />;
   }
 
@@ -88,10 +89,8 @@ export default function QuestionDetailScreen() {
 
   const question = questionQuery.data;
   const relatedQuestions = relatedQuestionsQuery.data ?? [];
-  const questions = allQuestionsQuery.data ?? [];
-  const currentQuestionIndex = questions.findIndex((item) => item.id === question.id);
-  const previousQuestion = currentQuestionIndex > 0 ? questions[currentQuestionIndex - 1] : null;
-  const nextQuestion = currentQuestionIndex >= 0 && currentQuestionIndex < questions.length - 1 ? questions[currentQuestionIndex + 1] : null;
+  const previousQuestion = navigationQuery.data?.previous ?? null;
+  const nextQuestion = navigationQuery.data?.next ?? null;
 
   return (
     <ScreenContainer>

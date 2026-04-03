@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { router } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { InteractionManager, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn } from 'react-native-reanimated';
-import { Chip, IconButton, Surface, Text } from 'react-native-paper';
 
 import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
-import { emptyStateCopy } from '@/constants/empty-state-copy';
-import { questionService } from '@/services/mock/question-service';
+import { questionApiService as questionService } from '@/services/api/question-service';
 import { colors, spacing, useAppColors } from '@/theme';
 import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
 
@@ -15,7 +14,7 @@ function FavoritesSkeleton({ appColors }: { appColors: ReturnType<typeof useAppC
   return (
     <View style={styles.list}>
       {Array.from({ length: 3 }).map((_, index) => (
-        <Surface key={index} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
+        <View key={index} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]}>
           <View style={styles.header}>
             <View style={styles.titleWrap}>
               <View style={[styles.skeletonLineShort, { backgroundColor: appColors.primarySoft }]} />
@@ -28,7 +27,7 @@ function FavoritesSkeleton({ appColors }: { appColors: ReturnType<typeof useAppC
             <View style={[styles.skeletonTag, { backgroundColor: appColors.primarySoft }]} />
             <View style={[styles.skeletonTag, { backgroundColor: appColors.primarySoft }]} />
           </View>
-        </Surface>
+        </View>
       ))}
     </View>
   );
@@ -37,7 +36,17 @@ function FavoritesSkeleton({ appColors }: { appColors: ReturnType<typeof useAppC
 export default function FavoritesScreen() {
   const appColors = useAppColors();
   const queryClient = useQueryClient();
-  const favoritesQuery = useQuery({ queryKey: ['favorite-questions'], queryFn: questionService.getFavoriteQuestions });
+  const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setShouldLoadScreenData(true);
+    });
+
+    return () => task.cancel();
+  }, []);
+
+  const favoritesQuery = useQuery({ queryKey: ['favorite-questions'], queryFn: () => questionService.getFavoriteQuestions(), enabled: shouldLoadScreenData });
   const toggleFavoriteMutation = useMutation({
     mutationFn: (id: string) => questionService.toggleFavorite(id),
     onSuccess: async () => {
@@ -56,48 +65,45 @@ export default function FavoritesScreen() {
     return <LoadingState />;
   }
 
-  if (favoritesQuery.isError) {
-    return <EmptyState title={emptyStateCopy.favoritesLoadFailed.title} description={emptyStateCopy.favoritesLoadFailed.description} />;
-  }
-
   const isRefreshingFavorites = favoritesQuery.isFetching;
-
-  if (!favoritesQuery.data?.length) {
-    return <EmptyState title="暂无收藏题目" description="先去题库页收藏几道高频题吧。" />;
-  }
+  const favorites = favoritesQuery.data ?? [];
 
   return (
     <ScreenContainer>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={appColors.isDark ? ['#2B2645', '#332D52'] : [colors.primarySoft, '#EAE6FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { borderColor: appColors.border }]}> 
-          <Text variant="headlineMedium" style={[styles.heroTitle, { color: appColors.text }]}>Favorite Picks</Text>
+          <Text style={[styles.heroTitle, { color: appColors.text }]}>Favorite Picks</Text>
           <Text style={[styles.heroSubtitle, { color: appColors.textSecondary }]}>把真正值得反复复习的题，单独收纳成一页。</Text>
         </LinearGradient>
 
         {isRefreshingFavorites ? (
           <FavoritesSkeleton appColors={appColors} />
+        ) : !favorites.length ? (
+          <EmptyState title="暂无收藏题目" description="先去题库页收藏几道高频题吧。" />
         ) : (
-          <Animated.View entering={FadeIn.duration(160)} style={styles.list}>
-            {favoritesQuery.data.map((question, index) => (
-              <Surface key={question.id} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
+          <View style={styles.list}>
+            {favorites.map((question, index) => (
+              <View key={question.id} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
                 <View style={styles.header}>
                   <View style={styles.titleWrap}>
                     <Text style={[styles.indexLabel, { color: appColors.primary }]}>No. {String(index + 1).padStart(2, '0')}</Text>
-                    <Text variant="titleMedium" style={[styles.cardTitle, { color: appColors.text }]} onPress={() => router.push({ pathname: '/question/[id]', params: { id: question.id } })}>
+                    <Text style={[styles.cardTitle, { color: appColors.text }]} onPress={() => router.push({ pathname: '/question/[id]', params: { id: question.id } })}>
                       {question.title}
                     </Text>
                     <Text style={[styles.meta, { color: appColors.textSecondary }]}>{question.category}</Text>
                   </View>
-                <IconButton icon="star" iconColor={colors.warning} containerColor={appColors.primarySoft} onPress={() => toggleFavoriteMutation.mutate(question.id)} />
+                 <Pressable style={[styles.iconButton, { backgroundColor: appColors.primarySoft }]} onPress={() => toggleFavoriteMutation.mutate(question.id)}>
+                   <FontAwesome name="star" size={18} color={colors.warning} />
+                 </Pressable>
+                 </View>
+               <View style={styles.tags}>
+                 {question.tags?.map((tag) => (
+                   <View key={tag} style={[styles.tagChip, { backgroundColor: appColors.primarySoft }]}><Text style={[styles.tagText, { color: appColors.primaryDark }]}>{tag}</Text></View>
+                 ))}
                 </View>
-              <View style={styles.tags}>
-                {question.tags.map((tag) => (
-                  <Chip key={tag} compact style={[styles.tagChip, { backgroundColor: appColors.primarySoft }]} textStyle={[styles.tagText, { color: appColors.primaryDark }]}>{tag}</Chip>
-                ))}
               </View>
-              </Surface>
-            ))}
-          </Animated.View>
+             ))}
+          </View>
         )}
       </ScrollView>
     </ScreenContainer>
@@ -157,6 +163,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: colors.text,
     fontWeight: '800',
+    fontSize: 18,
   },
   meta: {
     color: colors.textSecondary,
@@ -168,10 +175,21 @@ const styles = StyleSheet.create({
   },
   tagChip: {
     backgroundColor: colors.primarySoft,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   tagText: {
     color: colors.primaryDark,
     fontWeight: '700',
+    fontSize: 12,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   skeletonLineShort: {
     width: 72,

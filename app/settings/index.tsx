@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { Alert, Platform, StyleSheet } from 'react-native';
 import { Card, List, Switch, Text } from 'react-native-paper';
@@ -13,6 +14,7 @@ import { showErrorMessage, showInfoMessage, showSuccessMessage } from '@/utils/f
 export default function SettingsScreen() {
   const appColors = useAppColors();
   const queryClient = useQueryClient();
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
   const themeMode = usePreferenceStore((state) => state.themeMode);
   const setThemeMode = usePreferenceStore((state) => state.setThemeMode);
   const hydratePreferences = usePreferenceStore((state) => state.hydrate);
@@ -102,7 +104,23 @@ export default function SettingsScreen() {
           }} />}
         />
         <List.Item title="通知设置" description="预留给练习提醒与学习通知" titleStyle={{ color: appColors.text }} descriptionStyle={{ color: appColors.textSecondary }} left={(props) => <List.Icon {...props} icon="bell-outline" color={appColors.primary} />} />
-        <List.Item title="关于应用" description="当前版本：前端骨架演示版" titleStyle={{ color: appColors.text }} descriptionStyle={{ color: appColors.textSecondary }} left={(props) => <List.Icon {...props} icon="information-outline" color={appColors.primary} />} />
+        <List.Item title="关于应用" description={`当前版本：${appVersion}`} titleStyle={{ color: appColors.text }} descriptionStyle={{ color: appColors.textSecondary }} left={(props) => <List.Icon {...props} icon="information-outline" color={appColors.primary} />} />
+        <List.Item
+          title="隐私政策"
+          description="查看应用如何处理账号信息与学习数据"
+          titleStyle={{ color: appColors.text }}
+          descriptionStyle={{ color: appColors.textSecondary }}
+          left={(props) => <List.Icon {...props} icon="shield-account-outline" color={appColors.primary} />}
+          onPress={() => router.push('/settings/privacy-policy')}
+        />
+        <List.Item
+          title="用户协议"
+          description="查看应用服务条款与使用规范"
+          titleStyle={{ color: appColors.text }}
+          descriptionStyle={{ color: appColors.textSecondary }}
+          left={(props) => <List.Icon {...props} icon="file-document-outline" color={appColors.primary} />}
+          onPress={() => router.push('/settings/user-agreement')}
+        />
         <List.Item
           title="导出本地数据"
           description="导出当前登录、学习、浏览和练习数据为 JSON"

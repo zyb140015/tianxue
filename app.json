@@ -1,21 +1,47 @@
 {
   "expo": {
-    "name": "前端面试 App",
+    "name": "天学",
     "slug": "frontend-interview-app",
     "version": "1.0.0",
+    "description": "天学是一款面向前端面试学习场景的练习应用，提供题库浏览、收藏复习、模拟面试和学习统计等功能。",
+    "icon": "./assets/branding/app-icon-1024.png",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "scheme": "frontendinterviewapp",
+    "splash": {
+      "image": "./assets/branding/splash-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#4B38D3"
+    },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-font"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "xnyb.tianxue.com"
+    },
+    "extra": {
+      "apiBaseUrl": "https://xnyb.online/tianxue/api/v1",
+      "router": {},
+      "eas": {
+        "projectId": "1dc50b16-c482-46cc-8845-ab92b055c091"
+      }
     },
     "android": {
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.tianxue.app",
+      "versionCode": 1,
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/branding/adaptive-icon-foreground.png",
+        "backgroundColor": "#4B38D3"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -23,6 +49,7 @@
     },
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "owner": "xnybs-organization"
   }
 }

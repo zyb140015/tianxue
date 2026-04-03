@@ -1,6 +1,8 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 
+import { LoadingState } from '@/components/common';
+import { useAuthStore } from '@/store/use-auth-store';
 import { useAppColors } from '@/theme';
 
 type TabBarIconProps = {
@@ -13,11 +15,22 @@ function TabBarIcon({ color, name }: TabBarIconProps & { name: React.ComponentPr
 
 export default function TabsLayout() {
   const appColors = useAppColors();
+  const isHydrated = useAuthStore((state) => state.isHydrated);
+  const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+
+  if (!isHydrated) {
+    return <LoadingState />;
+  }
+
+  if (!isLoggedIn) {
+    return <Redirect href="/(auth)/welcome" />;
+  }
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
+        lazy: true,
         tabBarActiveTintColor: appColors.primary,
         tabBarInactiveTintColor: appColors.textSecondary,
         sceneStyle: {

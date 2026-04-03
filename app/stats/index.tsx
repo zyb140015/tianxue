@@ -1,17 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { Button, Card, Chip, IconButton, ProgressBar, Surface, Text } from 'react-native-paper';
 
 import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { emptyStateCopy } from '@/constants/empty-state-copy';
-import { mockInterviewService } from '@/services/mock/mock-interview-service';
-import { questionService } from '@/services/mock/question-service';
-import { recentViewedService } from '@/services/mock/recent-viewed-service';
+import { historyApiService } from '@/services/api/history-service';
+import { questionApiService as questionService } from '@/services/api/question-service';
+import { statsApiService } from '@/services/api/stats-service';
 import { colors, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
 import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
+
+const MAX_VISIBLE_HISTORY_RECORDS = 10;
 
 function StatsPanelSkeleton({ appColors }: { appColors: ReturnType<typeof useAppColors> }) {
   return (
@@ -28,11 +30,30 @@ function StatsPanelSkeleton({ appColors }: { appColors: ReturnType<typeof useApp
 export default function StatsScreen() {
   const appColors = useAppColors();
   const queryClient = useQueryClient();
-  const questionsQuery = useQuery({ queryKey: ['questions', 'stats'], queryFn: () => questionService.getQuestions() });
-  const recordsQuery = useQuery({ queryKey: ['mock-interview-records'], queryFn: mockInterviewService.getRecords });
-  const recentViewedQuery = useQuery({ queryKey: ['recent-viewed-questions'], queryFn: recentViewedService.getRecords });
+  const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setShouldLoadScreenData(true);
+    });
+
+    return () => task.cancel();
+  }, []);
+
+  const recordsQuery = useQuery({ queryKey: ['mock-interview-records'], queryFn: historyApiService.getInterviewRecords, enabled: shouldLoadScreenData });
+  const recentViewedQuery = useQuery({ queryKey: ['recent-viewed-questions'], queryFn: historyApiService.getViewedRecords, enabled: shouldLoadScreenData });
+  const overviewQuery = useQuery({ queryKey: ['stats-overview'], queryFn: statsApiService.getOverview, enabled: shouldLoadScreenData });
+  const categoryProgressQuery = useQuery({ queryKey: ['stats-categories'], queryFn: statsApiService.getCategories, enabled: shouldLoadScreenData });
+  const recordQuestionIds = recordsQuery.data?.map((record) => record.questionId) ?? [];
+  const viewedQuestionIds = recentViewedQuery.data?.map((record) => record.questionId) ?? [];
+  const questionIds = Array.from(new Set([...recordQuestionIds, ...viewedQuestionIds]));
+  const questionsQuery = useQuery({
+    queryKey: ['questions-batch', 'stats', questionIds],
+    queryFn: () => questionService.getQuestionsByIds(questionIds),
+    enabled: shouldLoadScreenData && questionIds.length > 0,
+  });
   const clearRecordsMutation = useMutation({
-    mutationFn: mockInterviewService.clearRecords,
+    mutationFn: historyApiService.clearInterviewRecords,
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mock-interview-records'] }),
@@ -44,7 +65,7 @@ export default function StatsScreen() {
     onError: () => showErrorMessage('清空练习记录失败，请稍后重试。'),
   });
   const clearViewedMutation = useMutation({
-    mutationFn: recentViewedService.clearRecords,
+    mutationFn: historyApiService.clearViewedRecords,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['recent-viewed-questions'] });
       showSuccessMessage('浏览记录已清空。');
@@ -52,7 +73,7 @@ export default function StatsScreen() {
     onError: () => showErrorMessage('清空浏览记录失败，请稍后重试。'),
   });
   const deleteRecordMutation = useMutation({
-    mutationFn: (id: string) => mockInterviewService.deleteRecord(id),
+    mutationFn: (id: string) => historyApiService.deleteInterviewRecord(id),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mock-interview-records'] }),
@@ -64,7 +85,7 @@ export default function StatsScreen() {
     onError: () => showErrorMessage('删除练习记录失败，请稍后重试。'),
   });
   const deleteViewedMutation = useMutation({
-    mutationFn: (id: string) => recentViewedService.deleteRecord(id),
+    mutationFn: (id: string) => historyApiService.deleteViewedRecord(id),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['recent-viewed-questions'] });
       showSuccessMessage('浏览记录已删除。');
@@ -72,44 +93,28 @@ export default function StatsScreen() {
     onError: () => showErrorMessage('删除浏览记录失败，请稍后重试。'),
   });
 
-  if (questionsQuery.isLoading || recordsQuery.isLoading || recentViewedQuery.isLoading) {
+  if (recordsQuery.isLoading || recentViewedQuery.isLoading || overviewQuery.isLoading || categoryProgressQuery.isLoading || questionsQuery.isLoading) {
     return <LoadingState />;
   }
 
-  if (questionsQuery.isError || recordsQuery.isError || recentViewedQuery.isError) {
+  if (questionsQuery.isError || recordsQuery.isError || recentViewedQuery.isError || overviewQuery.isError || categoryProgressQuery.isError) {
     return <EmptyState title={emptyStateCopy.statsLoadFailed.title} description={emptyStateCopy.statsLoadFailed.description} />;
   }
 
   const questions = questionsQuery.data ?? [];
   const questionMap = new Map(questions.map((question) => [question.id, question]));
-  const learnedCount = questions.filter((question) => question.isLearned).length;
-  const favoriteCount = questions.filter((question) => question.isFavorite).length;
-  const needsReviewCount = questions.filter((question) => question.needsReview).length;
-  const totalQuestionCount = questions.length;
+  const visibleInterviewRecords = (recordsQuery.data ?? []).slice(0, MAX_VISIBLE_HISTORY_RECORDS);
+  const visibleViewedRecords = (recentViewedQuery.data ?? []).slice(0, MAX_VISIBLE_HISTORY_RECORDS);
+  const learnedCount = overviewQuery.data?.learnedCount ?? 0;
+  const favoriteCount = overviewQuery.data?.favoriteCount ?? 0;
+  const needsReviewCount = overviewQuery.data?.needsReviewCount ?? 0;
+  const totalQuestionCount = overviewQuery.data?.totalQuestionCount ?? 0;
   const progress = totalQuestionCount ? Math.round((learnedCount / totalQuestionCount) * 100) : 0;
-  const averageDuration = recordsQuery.data?.length
-    ? Math.round(recordsQuery.data.reduce((sum, record) => sum + record.duration, 0) / recordsQuery.data.length)
-    : 0;
-  const categoryProgressList = Array.from(
-    questions.reduce((map, question) => {
-      const current = map.get(question.category) ?? { total: 0, learned: 0, review: 0 };
-      const next = {
-        total: current.total + 1,
-        learned: current.learned + (question.isLearned ? 1 : 0),
-        review: current.review + (question.needsReview ? 1 : 0),
-      };
-
-      map.set(question.category, next);
-      return map;
-    }, new Map<string, { total: number; learned: number; review: number }>()),
-  ).map(([category, summary]) => ({
-    category,
-    total: summary.total,
-    learned: summary.learned,
-    review: summary.review,
-    progress: summary.total ? Math.round((summary.learned / summary.total) * 100) : 0,
-  }));
-  const isRefreshingStats = questionsQuery.isFetching || recordsQuery.isFetching || recentViewedQuery.isFetching;
+  const averageDuration = overviewQuery.data?.averageInterviewDuration ?? 0;
+  const categoryProgressList = categoryProgressQuery.data ?? [];
+  const isRefreshingSummary = questionsQuery.isFetching || overviewQuery.isFetching || categoryProgressQuery.isFetching;
+  const isRefreshingInterviewRecords = recordsQuery.isFetching;
+  const isRefreshingViewedRecords = recentViewedQuery.isFetching;
 
   return (
     <ScreenContainer>
@@ -169,7 +174,7 @@ export default function StatsScreen() {
           </Card>
         </View>
 
-        {isRefreshingStats ? <StatsPanelSkeleton appColors={appColors} /> : <Animated.View entering={FadeIn.duration(160)}><Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
+        {isRefreshingSummary ? <StatsPanelSkeleton appColors={appColors} /> : <View><Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
           <Card.Content style={styles.panelContent}>
             <View style={styles.panelHeader}>
               <Text variant="titleMedium" style={[styles.panelTitle, { color: appColors.text }]}>按分类掌握度</Text>
@@ -196,63 +201,73 @@ export default function StatsScreen() {
               </Pressable>
             ))}
           </Card.Content>
-        </Card></Animated.View>}
+        </Card></View>}
 
-        {isRefreshingStats ? <StatsPanelSkeleton appColors={appColors} /> : <Animated.View entering={FadeIn.duration(160)}><Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
+        {isRefreshingInterviewRecords ? <StatsPanelSkeleton appColors={appColors} /> : <View><Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
           <Card.Content style={styles.panelContent}>
             <View style={styles.panelHeader}>
-              <Text variant="titleMedium" style={[styles.panelTitle, { color: appColors.text }]}>完整练习记录</Text>
+              <Text variant="titleMedium" style={[styles.panelTitle, { color: appColors.text }]}>完整练习记录（共 {recordsQuery.data?.length ?? 0} 条）</Text>
               <View style={styles.panelActions}>
                 <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/(tabs)/mock-interview')}>去模拟</Button>
                 <Button compact mode="text" textColor={colors.danger} onPress={() => clearRecordsMutation.mutate()} disabled={clearRecordsMutation.isPending}>清空</Button>
               </View>
             </View>
-            {recordsQuery.data?.length ? (
-              recordsQuery.data.map((record) => (
-                <View key={record.id} style={styles.rowItem}>
-                  <View style={styles.rowTextWrap}>
-                    <Text style={[styles.rowTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
-                    <Text style={[styles.rowMeta, { color: appColors.textSecondary }]}>{formatDateTime(record.startedAt)}</Text>
+            {visibleInterviewRecords.length ? (
+              <>
+                {visibleInterviewRecords.map((record) => (
+                  <View key={record.id} style={styles.rowItem}>
+                    <View style={styles.rowTextWrap}>
+                      <Text style={[styles.rowTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
+                      <Text style={[styles.rowMeta, { color: appColors.textSecondary }]}>{formatDateTime(record.startedAt)}</Text>
+                    </View>
+                    <View style={styles.rowActions}>
+                      <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>{record.duration}s</Chip>
+                      <IconButton icon="delete-outline" size={18} iconColor={colors.danger} onPress={() => deleteRecordMutation.mutate(record.id)} />
+                    </View>
                   </View>
-                  <View style={styles.rowActions}>
-                    <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>{record.duration}s</Chip>
-                    <IconButton icon="delete-outline" size={18} iconColor={colors.danger} onPress={() => deleteRecordMutation.mutate(record.id)} />
-                  </View>
-                </View>
-              ))
+                ))}
+                {(recordsQuery.data?.length ?? 0) > MAX_VISIBLE_HISTORY_RECORDS ? (
+                  <Text style={[styles.historyLimitHint, { color: appColors.textSecondary }]}>仅展示最近 10 条练习记录</Text>
+                ) : null}
+              </>
             ) : (
               <Text style={[styles.emptyText, { color: appColors.textSecondary }]}>暂无练习记录。</Text>
             )}
           </Card.Content>
-        </Card></Animated.View>}
+        </Card></View>}
 
-        {isRefreshingStats ? <StatsPanelSkeleton appColors={appColors} /> : <Animated.View entering={FadeIn.duration(160)}><Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
+        {isRefreshingViewedRecords ? <StatsPanelSkeleton appColors={appColors} /> : <View><Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
           <Card.Content style={styles.panelContent}>
             <View style={styles.panelHeader}>
-              <Text variant="titleMedium" style={[styles.panelTitle, { color: appColors.text }]}>完整浏览记录</Text>
+              <Text variant="titleMedium" style={[styles.panelTitle, { color: appColors.text }]}>完整浏览记录（共 {recentViewedQuery.data?.length ?? 0} 条）</Text>
               <View style={styles.panelActions}>
                 <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/(tabs)/question-bank')}>去题库</Button>
                 <Button compact mode="text" textColor={colors.danger} onPress={() => clearViewedMutation.mutate()} disabled={clearViewedMutation.isPending}>清空</Button>
               </View>
             </View>
-            {recentViewedQuery.data?.length ? (
-              recentViewedQuery.data.map((record) => (
-                <View key={record.id} style={styles.rowItem}>
-                  <View style={styles.rowTextWrap}>
-                    <Text style={[styles.rowTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
-                    <Text style={[styles.rowMeta, { color: appColors.textSecondary }]}>{formatDateTime(record.viewedAt)}</Text>
+            {visibleViewedRecords.length ? (
+              <>
+                {visibleViewedRecords.map((record) => (
+                  <View key={record.id} style={styles.rowItem}>
+                    <View style={styles.rowTextWrap}>
+                      <Text style={[styles.rowTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
+                      <Text style={[styles.rowMeta, { color: appColors.textSecondary }]}>{formatDateTime(record.viewedAt)}</Text>
+                    </View>
+                    <View style={styles.rowActions}>
+                      <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>{questionMap.get(record.questionId)?.category ?? '未分类'}</Chip>
+                      <IconButton icon="delete-outline" size={18} iconColor={colors.danger} onPress={() => deleteViewedMutation.mutate(record.id)} />
+                    </View>
                   </View>
-                  <View style={styles.rowActions}>
-                    <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>{questionMap.get(record.questionId)?.category ?? '未分类'}</Chip>
-                    <IconButton icon="delete-outline" size={18} iconColor={colors.danger} onPress={() => deleteViewedMutation.mutate(record.id)} />
-                  </View>
-                </View>
-              ))
+                ))}
+                {(recentViewedQuery.data?.length ?? 0) > MAX_VISIBLE_HISTORY_RECORDS ? (
+                  <Text style={[styles.historyLimitHint, { color: appColors.textSecondary }]}>仅展示最近 10 条浏览记录</Text>
+                ) : null}
+              </>
             ) : (
               <Text style={[styles.emptyText, { color: appColors.textSecondary }]}>暂无浏览记录。</Text>
             )}
           </Card.Content>
-        </Card></Animated.View>}
+        </Card></View>}
       </ScrollView>
     </ScreenContainer>
   );
@@ -394,6 +409,10 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: colors.textSecondary,
+  },
+  historyLimitHint: {
+    fontSize: 12,
+    textAlign: 'center',
   },
   skeletonTitle: {
     width: '46%',

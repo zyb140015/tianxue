@@ -1,35 +1,41 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Chip, Surface, Text } from 'react-native-paper';
 
 import { LoadingState, ScreenContainer } from '@/components/common';
-import { mockInterviewService } from '@/services/mock/mock-interview-service';
-import { questionService } from '@/services/mock/question-service';
-import { recentViewedService } from '@/services/mock/recent-viewed-service';
-import { userService } from '@/services/mock/user-service';
+import { statsApiService } from '@/services/api/stats-service';
 import { useAuthStore } from '@/store/use-auth-store';
 import { colors, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
 
 export default function ProfileScreen() {
   const appColors = useAppColors();
-  const userQuery = useQuery({ queryKey: ['profile-user'], queryFn: userService.getCurrentUser });
-  const recordsQuery = useQuery({ queryKey: ['mock-interview-records'], queryFn: mockInterviewService.getRecords });
-  const questionsQuery = useQuery({ queryKey: ['questions', 'profile-records'], queryFn: () => questionService.getQuestions() });
-  const recentViewedQuery = useQuery({ queryKey: ['recent-viewed-questions'], queryFn: recentViewedService.getRecords });
+  const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setShouldLoadScreenData(true);
+    });
+
+    return () => task.cancel();
+  }, []);
+
+  const profileDashboardQuery = useQuery({ queryKey: ['stats-profile'], queryFn: statsApiService.getProfileDashboard, enabled: shouldLoadScreenData });
   const logout = useAuthStore((state) => state.logout);
 
-  if (userQuery.isLoading || recordsQuery.isLoading || questionsQuery.isLoading || recentViewedQuery.isLoading) {
+  if (profileDashboardQuery.isLoading) {
     return <LoadingState />;
   }
 
-  const recentRecords = recordsQuery.data?.slice(0, 3) ?? [];
-  const recentViewed = recentViewedQuery.data?.slice(0, 3) ?? [];
-  const questionMap = new Map((questionsQuery.data ?? []).map((question) => [question.id, question]));
-  const totalQuestionCount = questionsQuery.data?.length ?? 0;
-  const learnedCount = userQuery.data?.learnedCount ?? 0;
+  const dashboard = profileDashboardQuery.data;
+  const recentRecords = dashboard?.recentRecords ?? [];
+  const recentViewed = dashboard?.recentViewed ?? [];
+  const questionMap = new Map((dashboard?.recentQuestions ?? []).map((question) => [question.id, question] as const));
+  const totalQuestionCount = dashboard?.overview.totalQuestionCount ?? 0;
+  const learnedCount = dashboard?.user.learnedCount ?? 0;
   const learningProgress = totalQuestionCount ? Math.round((learnedCount / totalQuestionCount) * 100) : 0;
 
   return (
@@ -39,18 +45,18 @@ export default function ProfileScreen() {
           <View style={styles.heroHeader}>
             <Avatar.Text size={74} label="FE" color={appColors.primaryDark} style={styles.avatar} />
             <View style={styles.heroInfo}>
-              <Text variant="headlineSmall" style={styles.name}>{userQuery.data?.name}</Text>
-              <Text style={styles.heroMeta}>连续学习 {userQuery.data?.streakDays} 天</Text>
+               <Text variant="headlineSmall" style={styles.name}>{dashboard?.user.name}</Text>
+               <Text style={styles.heroMeta}>连续学习 {dashboard?.user.streakDays} 天</Text>
             </View>
           </View>
 
           <View style={styles.heroStats}>
             <View style={styles.heroStatCard}>
-              <Text style={styles.heroStatValue}>{recordsQuery.data?.length ?? 0}</Text>
+               <Text style={styles.heroStatValue}>{recentRecords.length}</Text>
               <Text style={styles.heroStatLabel}>模拟次数</Text>
             </View>
             <View style={styles.heroStatCard}>
-              <Text style={styles.heroStatValue}>{userQuery.data?.favoriteCount ?? 0}</Text>
+               <Text style={styles.heroStatValue}>{dashboard?.user.favoriteCount ?? 0}</Text>
               <Text style={styles.heroStatLabel}>收藏题目</Text>
             </View>
             <View style={styles.heroStatCard}>

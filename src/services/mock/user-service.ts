@@ -4,15 +4,18 @@ import { mockInterviewService } from './mock-interview-service';
 
 export const userService = {
   async getCurrentUser() {
-    const [questions, records] = await Promise.all([
-      questionService.getQuestions(),
+    const [favoriteQuestions, learnedQuestionCandidate, records] = await Promise.all([
+      questionService.getFavoriteQuestions(),
+      questionService.getQuestionById('1'),
       mockInterviewService.getRecords(),
     ]);
 
+    const learnedCount = learnedQuestionCandidate?.isLearned ? 1 : 0;
+
     return Promise.resolve({
       ...mockUser,
-      learnedCount: questions.filter((question) => question.isLearned).length,
-      favoriteCount: questions.filter((question) => question.isFavorite).length,
+      learnedCount,
+      favoriteCount: favoriteQuestions.length,
       streakDays: Math.max(mockUser.streakDays, records.length > 0 ? 8 : mockUser.streakDays),
     });
   },
