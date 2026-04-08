@@ -9,7 +9,7 @@ export default function UserAgreementScreen() {
   const appColors = useAppColors();
 
   return (
-    <ScreenContainer style={styles.container}>
+    <ScreenContainer edges={['left', 'right', 'bottom']} style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text variant="headlineSmall" style={[styles.title, { color: appColors.text }]}>用户协议</Text>
         <Text style={[styles.meta, { color: appColors.textSecondary }]}>更新日期：{legalLastUpdatedAt}</Text>

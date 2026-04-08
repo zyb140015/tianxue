@@ -34,6 +34,7 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: appColors.background },
           }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="favorites" options={{ headerShown: true, title: '我的收藏' }} />
           <Stack.Screen name="question/[id]" options={{ headerShown: true, title: '题目详情' }} />
           <Stack.Screen name="stats/index" options={{ headerShown: true, title: '学习统计' }} />
           <Stack.Screen name="settings/index" options={{ headerShown: true, title: '设置' }} />

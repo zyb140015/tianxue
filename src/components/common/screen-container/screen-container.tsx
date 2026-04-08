@@ -1,14 +1,18 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, View, type ViewProps } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, type Edges } from 'react-native-safe-area-context';
 
 import { spacing, useAppColors } from '@/theme';
 
-export function ScreenContainer({ children, style, ...props }: ViewProps) {
+export interface ScreenContainerProps extends ViewProps {
+  edges?: Edges;
+}
+
+export function ScreenContainer({ children, style, edges, ...props }: ScreenContainerProps) {
   const appColors = useAppColors();
 
   return (
-    <SafeAreaView {...props} style={[styles.container, { backgroundColor: appColors.background }, style]}>
+    <SafeAreaView {...props} edges={edges} style={[styles.container, { backgroundColor: appColors.background }, style]}>
       <LinearGradient colors={appColors.gradientBackground} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
       <View pointerEvents="none" style={[styles.orb, styles.orbTop, { backgroundColor: appColors.overlayOrb }]} />
       <View pointerEvents="none" style={[styles.orb, styles.orbMiddle, { backgroundColor: appColors.overlayMint }]} />

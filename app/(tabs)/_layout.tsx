@@ -1,9 +1,11 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Redirect, Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
+import { useEffect } from 'react';
 
 import { LoadingState } from '@/components/common';
 import { useAuthStore } from '@/store/use-auth-store';
-import { useAppColors } from '@/theme';
+import { usePreferenceStore } from '@/store/use-preference-store';
+import { colors } from '@/theme';
 
 type TabBarIconProps = {
   color: string;
@@ -14,16 +16,34 @@ function TabBarIcon({ color, name }: TabBarIconProps & { name: React.ComponentPr
 }
 
 export default function TabsLayout() {
-  const appColors = useAppColors();
   const isHydrated = useAuthStore((state) => state.isHydrated);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  const themeMode = usePreferenceStore((state) => state.themeMode);
 
-  if (!isHydrated) {
+  const tabColors = themeMode === 'dark'
+    ? {
+        primary: colors.primaryLight,
+        textSecondary: '#C1B8E8',
+        surface: '#211D36',
+        shadow: 'rgba(0, 0, 0, 0.35)',
+      }
+    : {
+        primary: colors.primary,
+        textSecondary: colors.textSecondary,
+        surface: colors.surface,
+        shadow: colors.shadow,
+      };
+
+  useEffect(() => {
+    if (!isHydrated || isLoggedIn) {
+      return;
+    }
+
+    router.replace('/(auth)/welcome');
+  }, [isHydrated, isLoggedIn]);
+
+  if (!isHydrated || !isLoggedIn) {
     return <LoadingState />;
-  }
-
-  if (!isLoggedIn) {
-    return <Redirect href="/(auth)/welcome" />;
   }
 
   return (
@@ -31,8 +51,8 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         lazy: true,
-        tabBarActiveTintColor: appColors.primary,
-        tabBarInactiveTintColor: appColors.textSecondary,
+        tabBarActiveTintColor: tabColors.primary,
+        tabBarInactiveTintColor: tabColors.textSecondary,
         sceneStyle: {
           backgroundColor: 'transparent',
         },
@@ -45,10 +65,10 @@ export default function TabsLayout() {
           paddingTop: 10,
           paddingBottom: 10,
           paddingHorizontal: 8,
-          backgroundColor: appColors.surface,
+          backgroundColor: tabColors.surface,
           borderTopColor: 'transparent',
           borderRadius: 28,
-          shadowColor: appColors.shadow,
+          shadowColor: tabColors.shadow,
           shadowOpacity: 1,
           shadowRadius: 24,
           shadowOffset: { width: 0, height: 12 },
@@ -70,6 +90,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="ai"
+        options={{
+          title: 'AI',
+          tabBarIcon: ({ color }) => <TabBarIcon color={color} name="magic" />,
+        }}
+      />
+      <Tabs.Screen
         name="question-bank"
         options={{
           title: '题库',
@@ -81,13 +108,6 @@ export default function TabsLayout() {
         options={{
           title: '模拟',
           tabBarIcon: ({ color }) => <TabBarIcon color={color} name="microphone" />,
-        }}
-      />
-      <Tabs.Screen
-        name="favorites"
-        options={{
-          title: '收藏',
-          tabBarIcon: ({ color }) => <TabBarIcon color={color} name="star" />,
         }}
       />
       <Tabs.Screen

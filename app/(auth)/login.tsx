@@ -5,18 +5,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Surface, Text } from 'react-native-paper';
 import { z } from 'zod';
 
 import { Input, ScreenContainer } from '@/components/common';
+import { routes } from '@/constants/routes';
 import { useAuthStore } from '@/store/use-auth-store';
 import { colors, spacing, useAppColors } from '@/theme';
 import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
 
 const loginSchema = z.object({
   identifier: z.string().trim().min(1, '请输入手机号或邮箱'),
-  password: z.string().trim().min(4, '请输入至少 4 位的验证码或密码'),
+  password: z.string().trim().min(4, '请输入至少 4 位密码'),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -43,7 +44,7 @@ export default function LoginScreen() {
       await login(values.identifier, values.password);
       await queryClient.invalidateQueries();
       showSuccessMessage('登录成功，开始今天的学习。');
-      router.replace('/(tabs)');
+      router.replace(routes.home);
     } catch {
       showErrorMessage('登录失败，请稍后重试。');
     }
@@ -51,6 +52,8 @@ export default function LoginScreen() {
 
   return (
     <ScreenContainer style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardWrap}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
       <View style={styles.hero}>
         <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.logo, { shadowColor: appColors.shadow }]}>
           <View style={styles.logoRing} />
@@ -107,14 +110,14 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: appColors.text }]}>验证码或密码</Text>
+          <Text style={[styles.fieldLabel, { color: appColors.text }]}>密码</Text>
           <Controller
             control={control}
             name="password"
             render={({ field: { onChange, onBlur, value } }) => (
                 <View style={styles.passwordInputWrapper}>
                   <Input
-                    placeholder="请输入验证码或密码"
+                    placeholder="请输入密码"
                     placeholderTextColor={appColors.inputPlaceholder}
                     secureTextEntry={!isPasswordVisible}
                     autoCorrect={false}
@@ -149,6 +152,10 @@ export default function LoginScreen() {
           立即进入天学
         </Button>
 
+        <Button mode="text" textColor={appColors.primary} onPress={() => router.push(routes.register)}>
+          还没有账号？去注册
+        </Button>
+
         <View style={[styles.features, { borderTopColor: appColors.border }] }>
           <View style={styles.featureItem}>
             <Text style={[styles.featureTitle, { color: appColors.primary }]}>题库</Text>
@@ -166,15 +173,24 @@ export default function LoginScreen() {
           </View>
         </View>
       </Surface>
+      </ScrollView>
+      </KeyboardAvoidingView>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    paddingTop: spacing.md,
+  },
+  keyboardWrap: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     gap: spacing.xl,
-    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
   },
   hero: {
     alignItems: 'center',

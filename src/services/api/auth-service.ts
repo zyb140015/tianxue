@@ -16,12 +16,24 @@ type LoginResponseDto = {
   };
 };
 
+type RegisterRequestDto = {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+};
+
 export const authApiService = {
   async login(identifier: string, password: string) {
     const response = await apiClient.post<LoginResponseDto>('/auth/login', {
       identifier,
       password,
     });
+
+    return response.data.data;
+  },
+  async register(payload: RegisterRequestDto) {
+    const response = await apiClient.post<LoginResponseDto>('/auth/register', payload);
 
     return response.data.data;
   },

@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button, Chip, Surface, Text } from 'react-native-paper';
@@ -14,23 +14,34 @@ import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
 
 export default function QuestionDetailScreen() {
   const appColors = useAppColors();
-  const params = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; mode?: string }>();
   const queryClient = useQueryClient();
+  const isPracticeMode = params.mode === 'practice';
+  const [isNavigatingQuestion, setIsNavigatingQuestion] = useState(false);
 
   const questionQuery = useQuery({
     queryKey: ['question-detail', params.id],
     queryFn: () => questionService.getQuestionById(params.id),
     enabled: Boolean(params.id),
+    placeholderData: keepPreviousData,
   });
   const relatedQuestionsQuery = useQuery({
     queryKey: ['related-questions', params.id],
     queryFn: () => questionService.getRelatedQuestions(params.id),
     enabled: Boolean(params.id),
+    placeholderData: keepPreviousData,
   });
   const navigationQuery = useQuery({
     queryKey: ['question-navigation', params.id],
     queryFn: () => questionService.getQuestionNavigation(params.id),
     enabled: Boolean(params.id),
+    placeholderData: keepPreviousData,
+  });
+  const practiceNextQuestionQuery = useQuery({
+    queryKey: ['practice-next-question', params.id],
+    queryFn: () => questionService.getRandomQuestion(params.id),
+    enabled: Boolean(params.id) && isPracticeMode && !navigationQuery.data?.next,
+    staleTime: 30_000,
   });
   const toggleFavoriteMutation = useMutation({
     mutationFn: (id: string) => questionService.toggleFavorite(id),
@@ -75,7 +86,7 @@ export default function QuestionDetailScreen() {
     }
   }, [questionQuery.data?.id]);
 
-  if (questionQuery.isLoading || relatedQuestionsQuery.isLoading || navigationQuery.isLoading) {
+  if (!questionQuery.data && (questionQuery.isLoading || relatedQuestionsQuery.isLoading || navigationQuery.isLoading)) {
     return <LoadingState />;
   }
 
@@ -92,17 +103,65 @@ export default function QuestionDetailScreen() {
   const previousQuestion = navigationQuery.data?.previous ?? null;
   const nextQuestion = navigationQuery.data?.next ?? null;
 
+  const handleGoNext = async () => {
+    if (isNavigatingQuestion) {
+      return;
+    }
+
+    try {
+      setIsNavigatingQuestion(true);
+
+      if (nextQuestion) {
+        router.replace({ pathname: '/question/[id]', params: { id: nextQuestion.id, mode: params.mode } });
+        return;
+      }
+
+      if (!isPracticeMode) {
+        return;
+      }
+
+      const randomQuestion = practiceNextQuestionQuery.data ?? await queryClient.fetchQuery({
+        queryKey: ['practice-next-question', question.id],
+        queryFn: () => questionService.getRandomQuestion(question.id),
+        staleTime: 30_000,
+      });
+
+      if (!randomQuestion?.id) {
+        showErrorMessage('暂时没有更多题目了。');
+        return;
+      }
+
+      router.replace({ pathname: '/question/[id]', params: { id: randomQuestion.id, mode: params.mode } });
+    } finally {
+      setIsNavigatingQuestion(false);
+    }
+  };
+
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={appColors.isDark ? ['#2B2645', '#332D52'] : ['#F4F1FF', '#E7E1FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { borderColor: appColors.border }]}>
-          <View style={styles.metaRow}>
-            <Chip style={[styles.heroChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.surfaceMuted, borderColor: appColors.border }]} textStyle={[styles.heroChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryLight }]}>{question.category}</Chip>
-            <Chip style={[styles.heroChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.surfaceMuted, borderColor: appColors.border }]} textStyle={[styles.heroChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryLight }]}>{question.difficulty}</Chip>
-            {question.isLearned ? <Chip style={[styles.heroChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.surfaceMuted, borderColor: appColors.border }]} textStyle={[styles.heroChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryLight }]}>已学习</Chip> : null}
-            {question.needsReview ? <Chip style={[styles.reviewHeroChip, { backgroundColor: appColors.tertiarySoft }]} textStyle={styles.reviewHeroChipText}>未掌握</Chip> : null}
-          </View>
+        <LinearGradient colors={appColors.isDark ? ['#2B2645', '#332D52'] : ['#F4F1FF', '#E7E1FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { borderColor: appColors.border }]}> 
+          <View style={[styles.heroGlow, { backgroundColor: appColors.overlayOrb }]} />
+          {!!(question.category || question.difficulty || question.isLearned || question.needsReview) && (
+            <View style={styles.metaRow}>
+              {!!question.category && <Chip style={[styles.heroChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.surfaceMuted, borderColor: appColors.border }]} textStyle={[styles.heroChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryLight }]}>{question.category}</Chip>}
+              {!!question.difficulty && <Chip style={[styles.heroChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.surfaceMuted, borderColor: appColors.border }]} textStyle={[styles.heroChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryLight }]}>{question.difficulty}</Chip>}
+              {question.isLearned ? <Chip style={[styles.heroChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.surfaceMuted, borderColor: appColors.border }]} textStyle={[styles.heroChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryLight }]}>已学习</Chip> : null}
+              {question.needsReview ? <Chip style={[styles.reviewHeroChip, { backgroundColor: appColors.tertiarySoft }]} textStyle={styles.reviewHeroChipText}>未掌握</Chip> : null}
+            </View>
+          )}
           <Text variant="headlineSmall" style={[styles.title, { color: appColors.text }]}>{question.title}</Text>
+          <Text style={[styles.heroSubtitle, { color: appColors.textSecondary }]}>围绕题干、标准答案和相近题目连续吸收，比零散刷题更容易形成表达框架。</Text>
+          <View style={styles.heroStatsRow}>
+            <View style={[styles.heroStatCard, { backgroundColor: appColors.surface, borderColor: appColors.border }]}> 
+              <Text style={[styles.heroStatValue, { color: appColors.text }]}>{relatedQuestions.length}</Text>
+              <Text style={[styles.heroStatLabel, { color: appColors.textSecondary }]}>相近题</Text>
+            </View>
+            <View style={[styles.heroStatCard, { backgroundColor: appColors.surface, borderColor: appColors.border }]}> 
+              <Text style={[styles.heroStatValue, { color: appColors.text }]}>{question.tags.length}</Text>
+              <Text style={[styles.heroStatLabel, { color: appColors.textSecondary }]}>标签</Text>
+            </View>
+          </View>
           <View style={styles.actions}>
             <Button
               mode="contained"
@@ -167,22 +226,27 @@ export default function QuestionDetailScreen() {
               style={[styles.navigationButton, { borderColor: appColors.border, backgroundColor: appColors.isDark ? '#332D52' : appColors.surfaceMuted }]}
               labelStyle={[
                 styles.navigationButtonLabel,
-                { color: nextQuestion ? appColors.text : appColors.textSecondary },
+                { color: nextQuestion || isPracticeMode ? appColors.text : appColors.textSecondary },
               ]}
-              disabled={!nextQuestion}
-              onPress={() => nextQuestion ? router.replace({ pathname: '/question/[id]', params: { id: nextQuestion.id } }) : undefined}>
-              下一题
+              disabled={isNavigatingQuestion || (!nextQuestion && !isPracticeMode)}
+              loading={isNavigatingQuestion}
+              onPress={() => void handleGoNext()}>
+              {isNavigatingQuestion ? '跳转中...' : isPracticeMode ? '继续刷题' : '下一题'}
             </Button>
           </View>
         </LinearGradient>
 
         <Surface style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
           <Text style={[styles.sectionTitle, { color: appColors.primary }]}>题干</Text>
-          <Text style={[styles.body, { color: appColors.text }]}>{question.content}</Text>
+          <View style={[styles.contentPanel, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
+            <Text style={[styles.body, { color: appColors.text }]}>{question.content}</Text>
+          </View>
         </Surface>
         <Surface style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
           <Text style={[styles.sectionTitle, { color: appColors.primary }]}>答案</Text>
-          <Text style={[styles.body, { color: appColors.text }]}>{question.answer}</Text>
+          <View style={[styles.contentPanel, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
+            <Text style={[styles.body, { color: appColors.text }]}>{question.answer}</Text>
+          </View>
         </Surface>
 
         {relatedQuestions.length ? (
@@ -194,10 +258,13 @@ export default function QuestionDetailScreen() {
                   <Text style={[styles.relatedTitle, { color: appColors.text }]} onPress={() => router.push({ pathname: '/question/[id]', params: { id: relatedQuestion.id } })}>
                     {relatedQuestion.title}
                   </Text>
-                  <View style={styles.relatedMetaRow}>
-                    <Chip compact style={[styles.relatedChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.primarySoft }]} textStyle={[styles.relatedChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryDark }]}>{relatedQuestion.category}</Chip>
-                    <Chip compact style={[styles.relatedChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.primarySoft }]} textStyle={[styles.relatedChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryDark }]}>{relatedQuestion.difficulty}</Chip>
-                  </View>
+                  <Text style={[styles.relatedPrompt, { color: appColors.textSecondary }]}>继续延展同类表达场景，巩固你的回答结构。</Text>
+                  {!!(relatedQuestion.category || relatedQuestion.difficulty) && (
+                    <View style={styles.relatedMetaRow}>
+                      {!!relatedQuestion.category && <Chip compact style={[styles.relatedChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.primarySoft }]} textStyle={[styles.relatedChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryDark }]}>{relatedQuestion.category}</Chip>}
+                      {!!relatedQuestion.difficulty && <Chip compact style={[styles.relatedChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.primarySoft }]} textStyle={[styles.relatedChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryDark }]}>{relatedQuestion.difficulty}</Chip>}
+                    </View>
+                  )}
                 </Surface>
               ))}
             </View>
@@ -214,11 +281,20 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
   },
   hero: {
+    overflow: 'hidden',
     borderRadius: 32,
-    padding: spacing.xl,
-    gap: spacing.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  heroGlow: {
+    position: 'absolute',
+    top: -40,
+    right: -28,
+    width: 180,
+    height: 180,
+    borderRadius: 999,
   },
   metaRow: {
     flexDirection: 'row',
@@ -244,13 +320,41 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text,
     fontWeight: '800',
-    lineHeight: 52,
-    fontSize: 34,
+    lineHeight: 42,
+    fontSize: 30,
+  },
+  heroSubtitle: {
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  heroStatCard: {
+    flex: 1,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    gap: 2,
+  },
+  heroStatValue: {
+    fontWeight: '800',
+    fontSize: 18,
+  },
+  heroStatLabel: {
+    fontSize: 12,
   },
   sectionTitle: {
     color: colors.primary,
     fontWeight: '800',
     fontSize: 16,
+  },
+  contentPanel: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    borderWidth: 1,
   },
   body: {
     color: colors.text,
@@ -258,7 +362,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   actions: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   primaryAction: {
     borderRadius: 18,
@@ -287,7 +391,7 @@ const styles = StyleSheet.create({
   },
   navigationRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   navigationButton: {
     flex: 1,
@@ -318,6 +422,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '700',
     lineHeight: 30,
+  },
+  relatedPrompt: {
+    lineHeight: 20,
   },
   relatedMetaRow: {
     flexDirection: 'row',

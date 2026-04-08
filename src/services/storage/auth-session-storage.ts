@@ -7,6 +7,8 @@ export type AuthSession = {
   loggedInAt: string;
   token: string;
   userId: string;
+  userName: string;
+  userAvatar: string;
 };
 
 export async function getAuthSession() {
@@ -23,7 +25,7 @@ export async function getAuthSession() {
     //
     // 旧前端只保存了 identifier / loggedInAt，没有 token。
     // 现在既然后端已经接入 JWT，没有 token 的 session 就不能再视为有效登录态。
-    if (!parsedValue?.token || !parsedValue?.userId || !parsedValue?.identifier) {
+    if (!parsedValue?.token || !parsedValue?.userId || !parsedValue?.identifier || !parsedValue?.userName || !parsedValue?.userAvatar) {
       return null;
     }
 

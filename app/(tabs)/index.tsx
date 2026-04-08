@@ -1,16 +1,84 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useEffect, useState } from 'react';
+import { Animated, Easing, InteractionManager, Pressable, StyleSheet, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ScrollView as RNScrollView } from 'react-native';
+import type { ReactNode } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Chip, Surface, Text } from 'react-native-paper';
 
-import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
+import { LoadingState, ScreenContainer } from '@/components/common';
+import { useTabScrollReset } from '@/hooks/use-tab-scroll-reset';
 import { questionApiService as questionService } from '@/services/api/question-service';
 import { statsApiService } from '@/services/api/stats-service';
 import { colors, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
 import { showInfoMessage } from '@/utils/feedback';
+
+const ENTRY_DURATION_MS = 420;
+const ENTRY_STAGGER_MS = 70;
+const PRESS_IN_SCALE = 0.98;
+const HERO_SCROLL_DISTANCE = 220;
+const SHIMMER_LOOP_DURATION_MS = 2800;
+const NAVIGATION_THROTTLE_MS = 800;
+const PROGRESS_BAR_HEIGHT = 10;
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+function FadeInSection({ children, index = 0, style }: { children: ReactNode; index?: number; style?: StyleProp<ViewStyle> }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(18)).current;
+
+  useEffect(() => {
+    const animation = Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: ENTRY_DURATION_MS,
+        delay: index * ENTRY_STAGGER_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: ENTRY_DURATION_MS,
+        delay: index * ENTRY_STAGGER_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [index, opacity, translateY]);
+
+  return <Animated.View style={[{ opacity, transform: [{ translateY }] }, style]}>{children}</Animated.View>;
+}
+
+function ScalePressable({ children, onPress, style }: { children: ReactNode; onPress?: () => void; style?: StyleProp<ViewStyle> }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const animateScale = (toValue: number) => {
+    Animated.spring(scale, {
+      toValue,
+      tension: 220,
+      friction: 18,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={() => animateScale(PRESS_IN_SCALE)}
+      onPressOut={() => animateScale(1)}
+      style={[style, { transform: [{ scale }] }]}
+    >
+      {children}
+    </AnimatedPressable>
+  );
+}
 
 function HomeSectionSkeleton({ appColors }: { appColors: ReturnType<typeof useAppColors> }) {
   return (
@@ -26,6 +94,12 @@ function HomeSectionSkeleton({ appColors }: { appColors: ReturnType<typeof useAp
 export default function HomeScreen() {
   const appColors = useAppColors();
   const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const shimmerProgress = useRef(new Animated.Value(0)).current;
+  const lastNavigationAtRef = useRef(0);
+  const scrollViewRef = useRef<RNScrollView | null>(null);
+
+  useTabScrollReset(scrollViewRef);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -35,8 +109,52 @@ export default function HomeScreen() {
     return () => task.cancel();
   }, []);
 
+  useEffect(() => {
+    const shimmerLoop = Animated.loop(
+      Animated.timing(shimmerProgress, {
+        toValue: 1,
+        duration: SHIMMER_LOOP_DURATION_MS,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+    );
+
+    shimmerLoop.start();
+
+    return () => {
+      shimmerLoop.stop();
+    };
+  }, [shimmerProgress]);
+
   const categoryQuery = useQuery({ queryKey: ['categories'], queryFn: questionService.getCategories, enabled: shouldLoadScreenData });
   const homeDashboardQuery = useQuery({ queryKey: ['stats-home'], queryFn: statsApiService.getHomeDashboard, enabled: shouldLoadScreenData });
+
+  const heroAnimatedStyle = useMemo(
+    () => ({
+      transform: [
+        {
+          translateY: scrollY.interpolate({
+            inputRange: [0, HERO_SCROLL_DISTANCE],
+            outputRange: [0, -24],
+            extrapolate: 'clamp',
+          }),
+        },
+        {
+          scale: scrollY.interpolate({
+            inputRange: [0, HERO_SCROLL_DISTANCE],
+            outputRange: [1, 0.97],
+            extrapolate: 'clamp',
+          }),
+        },
+      ],
+      opacity: scrollY.interpolate({
+        inputRange: [0, HERO_SCROLL_DISTANCE],
+        outputRange: [1, 0.92],
+        extrapolate: 'clamp',
+      }),
+    }),
+    [scrollY],
+  );
 
   if (categoryQuery.isLoading || homeDashboardQuery.isLoading) {
     return <LoadingState />;
@@ -68,270 +186,419 @@ export default function HomeScreen() {
       .map((question) => [question.id, question] as const),
   );
   const isRefreshingHome = homeDashboardQuery.isFetching;
+  const continueLearningQuestionId = recentViewed[0]?.questionId ?? reviewQuestions[0]?.id ?? recommendedQuestion?.id ?? null;
+  const continueLearningTitle = continueLearningQuestionId ? questionMap.get(continueLearningQuestionId)?.title ?? '继续上次学习内容' : '当前还没有可继续的学习内容';
+  const todayRecommendationTitle = recommendedQuestion?.title ?? '当前暂无推荐题目';
+  const canNavigate = () => {
+    const now = Date.now();
+
+    if (now - lastNavigationAtRef.current < NAVIGATION_THROTTLE_MS) {
+      return false;
+    }
+
+    lastNavigationAtRef.current = now;
+    return true;
+  };
+
+  const handleContinueLearning = () => {
+    if (!continueLearningQuestionId) {
+      showInfoMessage('当前还没有可继续的学习内容。');
+      return;
+    }
+
+    if (!canNavigate()) {
+      return;
+    }
+
+    showInfoMessage('继续上次学习。');
+    router.push({ pathname: '/question/[id]', params: { id: continueLearningQuestionId, mode: 'practice' } });
+  };
+
+  const handleOpenRecommendedQuestion = () => {
+    if (!recommendedQuestion?.id) {
+      showInfoMessage('当前暂无推荐题目。');
+      return;
+    }
+
+    if (!canNavigate()) {
+      return;
+    }
+
+    showInfoMessage('已打开今日推荐。');
+    router.push({ pathname: '/question/[id]', params: { id: recommendedQuestion.id, mode: 'practice' } });
+  };
+
+  const handleStartMockInterview = () => {
+    if (!canNavigate()) {
+      return;
+    }
+
+    showInfoMessage('开始今天的模拟练习。');
+    router.push('/(tabs)/mock-interview');
+  };
+
+  const progressTrackWidth = `${Math.max(learningProgress, 8)}%` as const;
+  const shimmerStyle = {
+    transform: [
+      {
+        translateX: shimmerProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-180, 180],
+        }),
+      },
+      {
+        rotate: '18deg',
+      },
+    ],
+    opacity: shimmerProgress.interpolate({
+      inputRange: [0, 0.5, 1],
+      outputRange: [0.18, 0.36, 0.18],
+    }),
+  };
+
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-          <View style={styles.heroGlow} />
-          <View style={styles.heroTopRow}>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>今日冲刺</Text>
-            </View>
-            <Avatar.Text size={50} label="Q" color={appColors.primaryDark} style={styles.heroAvatar} />
-          </View>
+      <Animated.ScrollView
+        ref={scrollViewRef}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+      >
+        <FadeInSection index={0}>
+          <Animated.View style={heroAnimatedStyle}>
+            <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+              <View style={styles.heroGrid}>
+                <View style={styles.heroGridLineHorizontal} />
+                <View style={styles.heroGridLineVertical} />
+              </View>
+              <View style={styles.heroGlow} />
+              <Animated.View style={[styles.heroShimmer, shimmerStyle]} />
 
-          <View style={styles.heroTextBlock}>
-            <Text variant="headlineMedium" style={styles.heroTitle}>你好，{user.name}</Text>
-            <Text variant="bodyLarge" style={styles.heroSubtitle}>
-              今天先刷高频题，再来一轮模拟，让学习过程更有节奏。
-            </Text>
-          </View>
+              <View style={styles.heroTopRow}>
+                <View style={styles.heroBadge}>
+                  <Text style={styles.heroBadgeText}>INTERVIEW OS</Text>
+                </View>
+              </View>
 
-          <View style={styles.heroStatsRow}>
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{user.streakDays}</Text>
-              <Text style={styles.heroStatLabel}>连续天数</Text>
-            </View>
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{learnedCount}</Text>
-              <Text style={styles.heroStatLabel}>已学题目</Text>
-            </View>
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{favoriteCount}</Text>
-              <Text style={styles.heroStatLabel}>收藏题目</Text>
-            </View>
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{needsReviewCount}</Text>
-              <Text style={styles.heroStatLabel}>未掌握</Text>
-            </View>
-          </View>
-        </LinearGradient>
+              <View style={styles.heroMainRow}>
+                <View style={styles.heroContentColumn}>
+                  <View style={styles.heroTextBlock}>
+                    <Text variant="headlineMedium" style={styles.heroTitle}>你好，{user.name}</Text>
+                    <Text style={styles.heroTitleAccent}>让表达发光。</Text>
+                    <Text variant="bodyLarge" style={styles.heroSubtitle}>今天，先拿下一道题。</Text>
+                  </View>
 
-        <View>
-        <Surface style={[styles.featureCard, { backgroundColor: appColors.surface, shadowColor: appColors.shadow, borderColor: appColors.border }]} elevation={0}>
-          <View style={styles.sectionRow}>
-            <View>
-              <Text style={[styles.sectionEyebrow, { color: appColors.primary }]}>Featured Quiz</Text>
-              <Text variant="titleLarge" style={[styles.featureTitle, { color: appColors.text }]}>{recommendedQuestion?.title ?? '暂无推荐题目'}</Text>
-            </View>
-            <View style={[styles.progressBadge, { backgroundColor: appColors.tertiarySoft }]}>
-              <Text style={[styles.progressValue, { color: appColors.tertiary }]}>{learningProgress}%</Text>
-            </View>
-          </View>
-          <Text style={[styles.featureDescription, { color: appColors.textSecondary }]}>{recommendedQuestion?.content ?? '请先在后端补充更多题库数据。'}</Text>
-          <View style={styles.featureFooter}>
-            <Chip compact style={[styles.softChip, { backgroundColor: appColors.primarySoft }]} textStyle={[styles.softChipText, { color: appColors.primaryDark }]}>推荐路线</Chip>
-            <Button mode="contained" buttonColor={appColors.primary} onPress={() => {
-              showInfoMessage('已打开推荐题目。');
-              if (recommendedQuestion?.id) {
-                router.push({ pathname: '/question/[id]', params: { id: recommendedQuestion.id } });
-              }
-            }}>
-              开始学习
-            </Button>
-          </View>
-        </Surface>
-        </View>
+                  <View style={styles.heroMetaRow}>
+                    <View style={styles.heroMetaPill}>
+                      <Text style={styles.heroMetaText}>{user.streakDays} 天连击</Text>
+                    </View>
+                    <View style={styles.heroMetaPill}>
+                      <Text style={styles.heroMetaText}>{favoriteCount} 个收藏</Text>
+                    </View>
+                    <View style={styles.heroMetaPill}>
+                      <Text style={styles.heroMetaText}>{learningProgress}% 进度</Text>
+                    </View>
+                  </View>
 
-        <View style={styles.sectionRow}>
-          <Text variant="titleMedium" style={[styles.sectionTitle, { color: appColors.text }]}>专题分类</Text>
-          <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/(tabs)/question-bank')}>
-            去题库
-          </Button>
-        </View>
+                  <ScalePressable onPress={handleContinueLearning} style={styles.heroCtaCard}>
+                    <View style={styles.heroCtaRow}>
+                      <View style={styles.heroCtaTextWrap}>
+                        <Text style={styles.heroCtaEyebrow}>继续学习</Text>
+                        <Text numberOfLines={2} style={styles.heroCtaDescription}>{continueLearningTitle}</Text>
+                      </View>
+                      <View style={styles.heroCtaArrowWrap}>
+                        <Text style={styles.heroCtaArrow}>→</Text>
+                      </View>
+                    </View>
+                  </ScalePressable>
+                </View>
+              </View>
 
-        <View style={styles.categoryGrid}>
-          {categories.slice(0, 4).map((category, index) => (
-            <LinearGradient
-              key={category.id}
-              colors={appColors.isDark ? (index % 2 === 0 ? ['#35305A', '#40386A'] : ['#312B4F', '#3A345C']) : (index % 2 === 0 ? [colors.primarySoft, '#E8E2FF'] : [colors.surfaceStrong, '#E6E0FF'])}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.categoryCard}>
-              <Text style={[styles.categoryCount, { color: appColors.textSecondary }]}>{String(index + 1).padStart(2, '0')}</Text>
-              <Text variant="titleMedium" style={[styles.categoryName, { color: appColors.text }]}>{category.name}</Text>
-              <Text style={[styles.categoryMeta, { color: appColors.textSecondary }]}>适合整理知识地图</Text>
+              <View style={styles.heroProgressShell}>
+                <View style={styles.heroProgressHeader}>
+                  <Text style={styles.heroProgressLabel}>学习进度</Text>
+                  <Text style={styles.heroProgressPercent}>{learningProgress}%</Text>
+                </View>
+                <View style={styles.heroProgressTrack}>
+                  <LinearGradient colors={[colors.tertiary, '#FFD76E', '#FFFFFF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.heroProgressFill, { width: progressTrackWidth }]} />
+                </View>
+              </View>
+
+              <View style={styles.heroStatsRow}>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>{user.streakDays}</Text>
+                  <Text style={styles.heroStatLabel}>连击</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>{learnedCount}</Text>
+                  <Text style={styles.heroStatLabel}>已学</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>{favoriteCount}</Text>
+                  <Text style={styles.heroStatLabel}>收藏</Text>
+                </View>
+              </View>
+
+              <View style={styles.heroDock}>
+                <ScalePressable onPress={handleOpenRecommendedQuestion} style={styles.heroDockPrimaryAction}>
+                  <Text style={styles.heroDockPrimaryLabel}>今日推荐</Text>
+                </ScalePressable>
+                <ScalePressable onPress={handleStartMockInterview} style={styles.heroDockSecondaryAction}>
+                  <Text style={styles.heroDockSecondaryLabel}>开始模拟</Text>
+                </ScalePressable>
+              </View>
             </LinearGradient>
-          ))}
-        </View>
+          </Animated.View>
+        </FadeInSection>
 
-        {isRefreshingHome ? <HomeSectionSkeleton appColors={appColors} /> : <Surface style={[styles.panelCard, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
-          <View style={styles.sectionRow}>
-            <Text variant="titleMedium" style={[styles.sectionTitle, { color: appColors.text }]}>待复习</Text>
-            <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/(tabs)/question-bank')}>
-              去题库
-            </Button>
-          </View>
-          {reviewQuestions.length ? (
-            reviewQuestions.map((question, index) => (
-              <Pressable key={question.id} onPress={() => router.push({ pathname: '/question/[id]', params: { id: question.id } })}>
-                <View style={[styles.listItem, index === reviewQuestions.length - 1 ? styles.lastListItem : null]}>
-                  <View style={styles.listItemLeading}>
-                    <View style={[styles.listIndexBubble, { backgroundColor: appColors.primarySoft }]}>
-                      <Text style={[styles.listIndexText, { color: appColors.primary }]}>{index + 1}</Text>
-                    </View>
-                    <View style={styles.listTextWrap}>
-                      <Text style={[styles.listTitle, { color: appColors.text }]}>{question.title}</Text>
-                      <Text style={[styles.listMeta, { color: appColors.textSecondary }]}>{question.category} · {question.difficulty}</Text>
-                    </View>
-                  </View>
-                  <Chip compact style={[styles.reviewChip, { backgroundColor: appColors.tertiarySoft }]} textStyle={styles.reviewChipText}>未掌握</Chip>
-                </View>
-              </Pressable>
-            ))
-          ) : (
-            <Text style={[styles.emptyText, { color: appColors.textSecondary }]}>当前没有待复习题目，继续保持这个节奏。</Text>
-          )}
-        </Surface>}
-
-        {isRefreshingHome ? <HomeSectionSkeleton appColors={appColors} /> : <Surface style={[styles.panelCard, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
-          <View style={styles.sectionRow}>
-            <Text variant="titleMedium" style={[styles.sectionTitle, { color: appColors.text }]}>最近练习</Text>
-            <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/(tabs)/mock-interview')}>
-              查看更多
-            </Button>
-          </View>
-          {recentRecords.length ? (
-            recentRecords.map((record, index) => (
-              <Pressable key={record.id} onPress={() => router.push({ pathname: '/question/[id]', params: { id: record.questionId } })}>
-                <View style={[styles.listItem, index === recentRecords.length - 1 ? styles.lastListItem : null]}>
-                  <View style={styles.listItemLeading}>
-                    <View style={[styles.listIndexBubble, { backgroundColor: appColors.primarySoft }]}>
-                      <Text style={[styles.listIndexText, { color: appColors.primary }]}>{index + 1}</Text>
-                    </View>
-                    <View style={styles.listTextWrap}>
-                      <Text style={[styles.listTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
-                      <Text style={[styles.listMeta, { color: appColors.textSecondary }]}>{formatDateTime(record.startedAt)}</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.listBadge, { backgroundColor: appColors.primarySoft }]}>
-                    <Text style={[styles.listBadgeText, { color: appColors.primaryDark }]}>{record.duration}s</Text>
-                  </View>
-                </View>
-              </Pressable>
-            ))
-          ) : (
-            <Text style={[styles.emptyText, { color: appColors.textSecondary }]}>你还没有模拟记录，先来一轮让主页数据活起来。</Text>
-          )}
-        </Surface>}
-
-        <Surface style={[styles.panelCard, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
-          <View style={styles.sectionRow}>
-            <Text variant="titleMedium" style={[styles.sectionTitle, { color: appColors.text }]}>最近浏览</Text>
-            <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/stats')}>
-              查看统计
-            </Button>
-          </View>
-          {recentViewed.length ? (
-            recentViewed.map((record, index) => (
-              <Pressable key={record.id} onPress={() => router.push({ pathname: '/question/[id]', params: { id: record.questionId } })}>
-                <View style={[styles.listItem, index === recentViewed.length - 1 ? styles.lastListItem : null]}>
-                  <View style={styles.listItemLeading}>
-                    <Avatar.Text size={40} label={String(index + 1)} color={appColors.primary} style={[styles.smallAvatar, { backgroundColor: appColors.primarySoft }]} />
-                    <View style={styles.listTextWrap}>
-                      <Text style={[styles.listTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
-                      <Text style={[styles.listMeta, { color: appColors.textSecondary }]}>{formatDateTime(record.viewedAt)}</Text>
-                    </View>
-                  </View>
-                  <Chip compact style={[styles.softChip, { backgroundColor: appColors.primarySoft }]} textStyle={[styles.softChipText, { color: appColors.primaryDark }]}>
-                    {questionMap.get(record.questionId)?.category ?? '未分类'}
-                  </Chip>
-                </View>
-              </Pressable>
-            ))
-          ) : (
-            <Text style={[styles.emptyText, { color: appColors.textSecondary }]}>你还没有浏览记录，去挑一道题开场吧。</Text>
-          )}
-        </Surface>
-
-        <Surface style={[styles.panelCard, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
-          <View style={styles.sectionRow}>
-            <Text variant="titleMedium" style={[styles.sectionTitle, { color: appColors.text }]}>学习统计</Text>
-            <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/stats')}>
-              查看全部
-            </Button>
-          </View>
-          <Text style={[styles.emptyText, { color: appColors.textSecondary }]}>已完成 {learningProgress}% · 共 {totalQuestionCount} 题 · 收藏 {favoriteCount} 题 · 未掌握 {needsReviewCount} 题。去统计页查看完整练习与浏览历史。</Text>
-        </Surface>
-      </ScrollView>
+      </Animated.ScrollView>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flexGrow: 1,
+    justifyContent: 'center',
     gap: spacing.lg,
+    paddingTop: spacing.xs,
     paddingBottom: 120,
   },
   hero: {
     overflow: 'hidden',
-    borderRadius: 32,
-    padding: spacing.xl,
-    gap: spacing.lg,
-    minHeight: 260,
+    borderRadius: 36,
+    padding: 28,
+    gap: 22,
+    minHeight: 540,
+    shadowOpacity: 1,
+    shadowOffset: { width: 0, height: 20 },
+    shadowRadius: 40,
+  },
+  heroGrid: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.14,
+  },
+  heroGridLineHorizontal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 104,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  heroGridLineVertical: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: '62%',
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   heroGlow: {
     position: 'absolute',
-    top: -32,
-    right: -24,
+    top: -24,
+    right: -12,
     width: 180,
     height: 180,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   heroTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   heroBadge: {
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   heroBadgeText: {
     color: colors.textOnPrimary,
     fontWeight: '700',
+    fontSize: 11,
+    letterSpacing: 1.6,
   },
-  heroAvatar: {
-    backgroundColor: 'rgba(255,255,255,0.88)',
+  heroShimmer: {
+    position: 'absolute',
+    top: -40,
+    left: 0,
+    width: 140,
+    height: 520,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroMainRow: {
+    flexDirection: 'column',
+  },
+  heroContentColumn: {
+    gap: 24,
   },
   heroTextBlock: {
-    gap: spacing.sm,
+    gap: 8,
   },
   heroTitle: {
     color: colors.textOnPrimary,
     fontWeight: '800',
+    fontSize: 48,
+    lineHeight: 54,
+    letterSpacing: -1,
+  },
+  heroTitleAccent: {
+    color: colors.textOnPrimary,
+    fontSize: 40,
+    lineHeight: 46,
+    fontWeight: '800',
+    letterSpacing: -0.9,
+    maxWidth: 520,
   },
   heroSubtitle: {
-    color: 'rgba(255,255,255,0.86)',
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 16,
     lineHeight: 24,
-    maxWidth: 280,
+    maxWidth: 300,
+    marginTop: 10,
+  },
+  heroMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  heroMetaPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  heroMetaText: {
+    color: colors.textOnPrimary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  heroCtaCard: {
+    borderRadius: 20,
+    padding: 18,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  heroCtaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroCtaTextWrap: {
+    flex: 1,
+  },
+  heroCtaEyebrow: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  heroCtaArrowWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    flexShrink: 0,
+  },
+  heroCtaArrow: {
+    color: colors.textOnPrimary,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  heroCtaDescription: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+  },
+  heroProgressShell: {
+    gap: spacing.sm,
+    marginTop: 2,
+  },
+  heroProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroProgressLabel: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  heroProgressPercent: {
+    color: colors.textOnPrimary,
+    fontWeight: '800',
+  },
+  heroProgressTrack: {
+    height: PROGRESS_BAR_HEIGHT,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  heroProgressFill: {
+    height: PROGRESS_BAR_HEIGHT,
+    borderRadius: 999,
   },
   heroStatsRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: 8,
+    marginTop: 2,
   },
   heroStat: {
     flex: 1,
-    borderRadius: 22,
-    padding: spacing.md,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    gap: spacing.xs,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    gap: 2,
   },
   heroStatValue: {
     color: colors.textOnPrimary,
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '800',
   },
   heroStatLabel: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 12,
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 11,
+  },
+  heroDock: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 'auto',
+    paddingTop: 14,
+  },
+  heroDockPrimaryAction: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.96)',
+  },
+  heroDockPrimaryLabel: {
+    color: colors.primaryDark,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  heroDockSecondaryAction: {
+    minWidth: 116,
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  heroDockSecondaryLabel: {
+    color: colors.textOnPrimary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   featureCard: {
-    borderRadius: 28,
+    borderRadius: 32,
     padding: spacing.xl,
     backgroundColor: colors.surface,
     gap: spacing.md,
@@ -340,6 +607,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 24,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  featureAura: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 160,
+  },
+  featureCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  featureHeading: {
+    flex: 1,
+    gap: spacing.xs,
   },
   sectionRow: {
     flexDirection: 'row',
@@ -352,17 +637,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.8,
-    textTransform: 'uppercase',
   },
   featureTitle: {
     color: colors.text,
     fontWeight: '800',
-    marginTop: 4,
+    lineHeight: 32,
   },
   progressBadge: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
+    width: 64,
+    height: 64,
+    borderRadius: 22,
     backgroundColor: colors.tertiarySoft,
     alignItems: 'center',
     justifyContent: 'center',
@@ -375,12 +659,34 @@ const styles = StyleSheet.create({
   featureDescription: {
     color: colors.textSecondary,
     lineHeight: 22,
+    maxHeight: 88,
   },
   featureFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  featureDataStrip: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  featureDataItem: {
+    flex: 1,
+    borderRadius: 18,
+    padding: spacing.md,
+    backgroundColor: 'rgba(108,92,231,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(108,92,231,0.08)',
+    gap: 2,
+  },
+  featureDataValue: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  featureDataLabel: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   softChip: {
     backgroundColor: colors.primarySoft,
@@ -392,18 +698,27 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text,
     fontWeight: '800',
+    lineHeight: 24,
   },
   categoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.md,
+    justifyContent: 'space-between',
+  },
+  categoryCardPressable: {
+    width: '48%',
+    borderRadius: 24,
+    overflow: 'hidden',
   },
   categoryCard: {
-    width: '47%',
-    minHeight: 132,
-    borderRadius: 24,
+    width: '100%',
+    minHeight: 156,
+    borderRadius: 28,
     padding: spacing.lg,
     justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
   },
   categoryCount: {
     color: colors.textSecondary,
@@ -413,13 +728,15 @@ const styles = StyleSheet.create({
   categoryName: {
     color: colors.text,
     fontWeight: '800',
+    lineHeight: 24,
   },
   categoryMeta: {
     color: colors.textSecondary,
     fontSize: 12,
+    lineHeight: 18,
   },
   panelCard: {
-    borderRadius: 28,
+    borderRadius: 30,
     padding: spacing.xl,
     backgroundColor: colors.surface,
     gap: spacing.md,
@@ -428,15 +745,75 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 24,
   },
+  quickActionsCard: {
+    borderRadius: 30,
+    padding: spacing.xl,
+    gap: spacing.md,
+    borderWidth: 1,
+    shadowOpacity: 1,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 24,
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.md,
+  },
+  quickActionPrimary: {
+    borderRadius: 28,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    borderWidth: 1,
+    minHeight: 120,
+    overflow: 'hidden',
+  },
+  quickActionItem: {
+    flex: 1,
+    borderRadius: 24,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    borderWidth: 1,
+    minHeight: 132,
+    overflow: 'hidden',
+  },
+  quickActionSignal: {
+    position: 'absolute',
+    top: -14,
+    right: -18,
+    width: 84,
+    height: 84,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.36)',
+  },
+  quickActionKicker: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  quickActionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  quickActionPrimaryDescription: {
+    lineHeight: 22,
+    marginTop: spacing.xs,
+  },
+  quickActionDescription: {
+    lineHeight: 22,
+    marginTop: 'auto',
+  },
   listItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.md,
     paddingBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
     marginBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    borderRadius: 20,
   },
   lastListItem: {
     paddingBottom: 0,

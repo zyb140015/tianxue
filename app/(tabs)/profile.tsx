@@ -1,19 +1,39 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Chip, Surface, Text } from 'react-native-paper';
 
 import { LoadingState, ScreenContainer } from '@/components/common';
+import { useTabScrollReset } from '@/hooks/use-tab-scroll-reset';
+import { routes } from '@/constants/routes';
 import { statsApiService } from '@/services/api/stats-service';
 import { useAuthStore } from '@/store/use-auth-store';
 import { colors, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
 
+function getAvatarLabel(avatar: string | null | undefined, name: string) {
+  const trimmedAvatar = avatar?.trim();
+  if (trimmedAvatar && trimmedAvatar.length <= 2) {
+    return trimmedAvatar;
+  }
+
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    return '学';
+  }
+
+  return trimmedName.slice(0, 1).toUpperCase();
+}
+
 export default function ProfileScreen() {
   const appColors = useAppColors();
   const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const session = useAuthStore((state) => state.session);
+
+  useTabScrollReset(scrollViewRef);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -31,22 +51,27 @@ export default function ProfileScreen() {
   }
 
   const dashboard = profileDashboardQuery.data;
+  const displayName = dashboard?.user.name ?? session?.userName ?? '学习用户';
+  const avatarLabel = getAvatarLabel(dashboard?.user.avatar ?? session?.userAvatar, displayName);
   const recentRecords = dashboard?.recentRecords ?? [];
   const recentViewed = dashboard?.recentViewed ?? [];
   const questionMap = new Map((dashboard?.recentQuestions ?? []).map((question) => [question.id, question] as const));
-  const totalQuestionCount = dashboard?.overview.totalQuestionCount ?? 0;
-  const learnedCount = dashboard?.user.learnedCount ?? 0;
+  const overview = dashboard?.overview;
+  const totalQuestionCount = overview?.totalQuestionCount ?? 0;
+  const learnedCount = overview?.learnedCount ?? dashboard?.user.learnedCount ?? 0;
+  const needsReviewCount = overview?.needsReviewCount ?? 0;
+  const averageInterviewDuration = overview?.averageInterviewDuration ?? 0;
   const learningProgress = totalQuestionCount ? Math.round((learnedCount / totalQuestionCount) * 100) : 0;
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollViewRef} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={appColors.isDark ? ['#2F2850', '#433679'] : [colors.primary, colors.primaryDark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <View style={styles.heroHeader}>
-            <Avatar.Text size={74} label="FE" color={appColors.primaryDark} style={styles.avatar} />
+            <Avatar.Text size={74} label={avatarLabel} color={appColors.primaryDark} style={styles.avatar} />
             <View style={styles.heroInfo}>
-               <Text variant="headlineSmall" style={styles.name}>{dashboard?.user.name}</Text>
-               <Text style={styles.heroMeta}>连续学习 {dashboard?.user.streakDays} 天</Text>
+               <Text variant="headlineSmall" style={styles.name}>{displayName}</Text>
+                <Text style={styles.heroMeta}>连续学习 {dashboard?.user.streakDays} 天</Text>
             </View>
           </View>
 
@@ -71,9 +96,13 @@ export default function ProfileScreen() {
           <View style={styles.badgeRow}>
             <Chip style={[styles.badgeChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>已学 {learnedCount} 题</Chip>
             <Chip style={[styles.badgeChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>浏览 {recentViewed.length} 条</Chip>
-            <Chip style={[styles.badgeChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>手感在线</Chip>
+            <Chip style={[styles.badgeChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>待复习 {needsReviewCount} 题</Chip>
+            <Chip style={[styles.badgeChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>平均时长 {averageInterviewDuration}s</Chip>
           </View>
-          <Button mode="outlined" textColor={appColors.primary} onPress={() => router.push('/stats')}>查看完整统计</Button>
+          <View style={styles.panelActions}>
+            <Button mode="outlined" textColor={appColors.primary} onPress={() => router.push(routes.favorites)}>查看我的收藏</Button>
+            <Button mode="outlined" textColor={appColors.primary} onPress={() => router.push('/stats')}>查看完整统计</Button>
+          </View>
         </Surface>
 
         <Surface style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
@@ -196,6 +225,9 @@ const styles = StyleSheet.create({
   },
   badgeChip: {
     backgroundColor: colors.primarySoft,
+  },
+  panelActions: {
+    gap: spacing.sm,
   },
   recordItem: {
     flexDirection: 'row',

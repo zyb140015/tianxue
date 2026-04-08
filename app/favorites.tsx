@@ -14,7 +14,7 @@ function FavoritesSkeleton({ appColors }: { appColors: ReturnType<typeof useAppC
   return (
     <View style={styles.list}>
       {Array.from({ length: 3 }).map((_, index) => (
-        <View key={index} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]}>
+        <View key={index} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]}> 
           <View style={styles.header}>
             <View style={styles.titleWrap}>
               <View style={[styles.skeletonLineShort, { backgroundColor: appColors.primarySoft }]} />
@@ -69,11 +69,11 @@ export default function FavoritesScreen() {
   const favorites = favoritesQuery.data ?? [];
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['left', 'right', 'bottom']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={appColors.isDark ? ['#2B2645', '#332D52'] : [colors.primarySoft, '#EAE6FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { borderColor: appColors.border }]}> 
-          <Text style={[styles.heroTitle, { color: appColors.text }]}>Favorite Picks</Text>
-          <Text style={[styles.heroSubtitle, { color: appColors.textSecondary }]}>把真正值得反复复习的题，单独收纳成一页。</Text>
+          <Text style={[styles.heroTitle, { color: appColors.text }]}>我的收藏</Text>
+          <Text style={[styles.heroSubtitle, { color: appColors.textSecondary }]}>把真正值得反复复习的题，集中收纳到这里。</Text>
         </LinearGradient>
 
         {isRefreshingFavorites ? (
@@ -92,17 +92,17 @@ export default function FavoritesScreen() {
                     </Text>
                     <Text style={[styles.meta, { color: appColors.textSecondary }]}>{question.category}</Text>
                   </View>
-                 <Pressable style={[styles.iconButton, { backgroundColor: appColors.primarySoft }]} onPress={() => toggleFavoriteMutation.mutate(question.id)}>
-                   <FontAwesome name="star" size={18} color={colors.warning} />
-                 </Pressable>
-                 </View>
-               <View style={styles.tags}>
-                 {question.tags?.map((tag) => (
-                   <View key={tag} style={[styles.tagChip, { backgroundColor: appColors.primarySoft }]}><Text style={[styles.tagText, { color: appColors.primaryDark }]}>{tag}</Text></View>
-                 ))}
+                  <Pressable style={[styles.iconButton, { backgroundColor: appColors.primarySoft }]} onPress={() => toggleFavoriteMutation.mutate(question.id)}>
+                    <FontAwesome name="star" size={18} color={colors.warning} />
+                  </Pressable>
+                </View>
+                <View style={styles.tags}>
+                  {question.tags?.map((tag) => (
+                    <View key={tag} style={[styles.tagChip, { backgroundColor: appColors.primarySoft }]}><Text style={[styles.tagText, { color: appColors.primaryDark }]}>{tag}</Text></View>
+                  ))}
                 </View>
               </View>
-             ))}
+            ))}
           </View>
         )}
       </ScrollView>
@@ -111,6 +111,9 @@ export default function FavoritesScreen() {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    paddingTop: spacing.sm,
+  },
   container: {
     gap: spacing.lg,
     paddingBottom: 120,

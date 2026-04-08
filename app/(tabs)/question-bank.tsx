@@ -1,12 +1,13 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, View } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Chip, IconButton, Searchbar, Surface, Text } from 'react-native-paper';
 
 import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useTabScrollReset } from '@/hooks/use-tab-scroll-reset';
 import { questionApiService as questionService } from '@/services/api/question-service';
 import { getQuestionBankFilters, saveQuestionBankFilters } from '@/services/storage/question-bank-filter-storage';
 import { useFeedbackStore } from '@/store/use-feedback-store';
@@ -78,10 +79,14 @@ export default function QuestionBankScreen() {
   const [selectedSort, setSelectedSort] = useState<'default' | 'difficulty' | 'favorites-first'>('default');
   const [hasHydratedFilters, setHasHydratedFilters] = useState(false);
   const [isFilterTransitioning, setIsFilterTransitioning] = useState(false);
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
   const queryClient = useQueryClient();
   const showFeedback = useFeedbackStore((state) => state.showFeedback);
   const previousFilterSignatureRef = useRef('');
+  const scrollViewRef = useRef<ScrollView | null>(null);
   const debouncedSearch = useDebouncedValue(search, 250);
+
+  useTabScrollReset(scrollViewRef);
 
   useEffect(() => {
     let mounted = true;
@@ -199,6 +204,7 @@ export default function QuestionBankScreen() {
   const questionQuery = useInfiniteQuery({
     queryKey: ['questions', selectedCategory, selectedDifficulty, selectedTag, selectedSort, debouncedSearch, favoriteOnly, unlearnedOnly, needsReviewOnly],
     initialPageParam: 1,
+    placeholderData: keepPreviousData,
     queryFn: ({ pageParam }) =>
       questionService.getQuestionPage({
         page: pageParam,
@@ -275,8 +281,9 @@ export default function QuestionBankScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={styles.container} onScroll={handleQuestionListScroll} scrollEventThrottle={16} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollViewRef} contentContainerStyle={styles.container} onScroll={handleQuestionListScroll} scrollEventThrottle={16} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+          <View style={[styles.heroGlow, { backgroundColor: appColors.overlayOrb }]} />
           <Text variant="headlineMedium" style={[styles.heroTitle, { color: colors.textOnPrimary }]}>Question Bank</Text>
           <Text style={[styles.heroSubtitle, { color: 'rgba(255,255,255,0.82)' }]}>把筛选、搜索和收藏组合成一套更像产品的浏览体验。</Text>
           <View style={styles.heroStats}>
@@ -287,6 +294,17 @@ export default function QuestionBankScreen() {
             <View style={styles.heroStatCard}>
               <Text style={[styles.heroStatValue, { color: colors.textOnPrimary }]}>{categoryQuery.data?.length ?? 0}</Text>
               <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.76)' }]}>专题分类</Text>
+            </View>
+          </View>
+          <View style={styles.heroMetaRow}>
+            <View style={styles.heroMetaPill}>
+              <Text style={styles.heroMetaText}>{selectedCategory === 'all' ? '全部分类' : selectedCategory}</Text>
+            </View>
+            <View style={styles.heroMetaPill}>
+              <Text style={styles.heroMetaText}>{selectedDifficulty === 'all' ? '全部难度' : selectedDifficulty}</Text>
+            </View>
+            <View style={styles.heroMetaPill}>
+              <Text style={styles.heroMetaText}>{selectedSort === 'default' ? '默认排序' : selectedSort}</Text>
             </View>
           </View>
         </LinearGradient>
@@ -350,84 +368,133 @@ export default function QuestionBankScreen() {
             />
           </View>
 
-          <View style={[styles.filterBlock, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
-            <Text style={[styles.filterTitle, { color: appColors.text }]}>分类</Text>
-            <View style={styles.chips}>
-               <FilterChip label="全部" selected={selectedCategory === 'all'} onPress={() => setSelectedCategory('all')} appColors={appColors} />
-               {categoryQuery.data?.map((category) => (
-                 <FilterChip key={category.id} label={category.name} selected={selectedCategory === category.id} onPress={() => setSelectedCategory(category.id)} appColors={appColors} />
-               ))}
-            </View>
-          </View>
+          {isFilterExpanded && (
+            <View style={styles.expandedFiltersContainer}>
+              <View style={styles.inlineFilterRow}> 
+                <Text style={[styles.inlineFilterTitle, { color: appColors.textSecondary }]}>分类</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollableChips}>
+                   <FilterChip label="全部" selected={selectedCategory === 'all'} onPress={() => setSelectedCategory('all')} appColors={appColors} />
+                   {categoryQuery.data?.map((category) => (
+                     <FilterChip key={category.id} label={category.name} selected={selectedCategory === category.id} onPress={() => setSelectedCategory(category.id)} appColors={appColors} />
+                   ))}
+                </ScrollView>
+              </View>
 
-          <View style={[styles.filterBlock, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
-            <Text style={[styles.filterTitle, { color: appColors.text }]}>难度</Text>
-            <View style={styles.chips}>
-              <FilterChip label="全部难度" selected={selectedDifficulty === 'all'} onPress={() => setSelectedDifficulty('all')} appColors={appColors} />
-              <FilterChip label="简单" selected={selectedDifficulty === 'easy'} onPress={() => setSelectedDifficulty('easy')} appColors={appColors} />
-              <FilterChip label="中等" selected={selectedDifficulty === 'medium'} onPress={() => setSelectedDifficulty('medium')} appColors={appColors} />
-              <FilterChip label="困难" selected={selectedDifficulty === 'hard'} onPress={() => setSelectedDifficulty('hard')} appColors={appColors} />
-            </View>
-          </View>
+              <View style={styles.inlineFilterRow}> 
+                <Text style={[styles.inlineFilterTitle, { color: appColors.textSecondary }]}>难度</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollableChips}>
+                  <FilterChip label="全部难度" selected={selectedDifficulty === 'all'} onPress={() => setSelectedDifficulty('all')} appColors={appColors} />
+                  <FilterChip label="简单" selected={selectedDifficulty === 'easy'} onPress={() => setSelectedDifficulty('easy')} appColors={appColors} />
+                  <FilterChip label="中等" selected={selectedDifficulty === 'medium'} onPress={() => setSelectedDifficulty('medium')} appColors={appColors} />
+                  <FilterChip label="困难" selected={selectedDifficulty === 'hard'} onPress={() => setSelectedDifficulty('hard')} appColors={appColors} />
+                </ScrollView>
+              </View>
 
-          <View style={[styles.filterBlock, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
-            <Text style={[styles.filterTitle, { color: appColors.text }]}>标签</Text>
-            <View style={styles.chips}>
-              <FilterChip label="全部标签" selected={selectedTag === 'all'} onPress={() => setSelectedTag('all')} appColors={appColors} />
-              {tagsQuery.data?.map((tag) => (
-                <FilterChip key={tag} label={tag} selected={selectedTag === tag} onPress={() => setSelectedTag(tag)} appColors={appColors} />
-              ))}
-            </View>
-          </View>
+              <View style={styles.inlineFilterRow}> 
+                <Text style={[styles.inlineFilterTitle, { color: appColors.textSecondary }]}>标签</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollableChips}>
+                  <FilterChip label="全部标签" selected={selectedTag === 'all'} onPress={() => setSelectedTag('all')} appColors={appColors} />
+                  {tagsQuery.data?.map((tag) => (
+                    <FilterChip key={tag} label={tag} selected={selectedTag === tag} onPress={() => setSelectedTag(tag)} appColors={appColors} />
+                  ))}
+                </ScrollView>
+              </View>
 
-          <View style={[styles.filterBlock, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
-            <Text style={[styles.filterTitle, { color: appColors.text }]}>排序</Text>
-            <View style={styles.chips}>
-              <FilterChip label="默认" selected={selectedSort === 'default'} onPress={() => setSelectedSort('default')} appColors={appColors} />
-              <FilterChip label="按难度" selected={selectedSort === 'difficulty'} onPress={() => setSelectedSort('difficulty')} appColors={appColors} />
-              <FilterChip label="收藏优先" selected={selectedSort === 'favorites-first'} onPress={() => setSelectedSort('favorites-first')} appColors={appColors} />
+              <View style={styles.inlineFilterRow}> 
+                <Text style={[styles.inlineFilterTitle, { color: appColors.textSecondary }]}>排列顺序</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollableChips}>
+                  <FilterChip label="默认" selected={selectedSort === 'default'} onPress={() => setSelectedSort('default')} appColors={appColors} />
+                  <FilterChip label="按难度" selected={selectedSort === 'difficulty'} onPress={() => setSelectedSort('difficulty')} appColors={appColors} />
+                  <FilterChip label="收藏优先" selected={selectedSort === 'favorites-first'} onPress={() => setSelectedSort('favorites-first')} appColors={appColors} />
+                </ScrollView>
+              </View>
             </View>
-          </View>
+          )}
+
+          <Pressable style={styles.expandButton} onPress={() => setIsFilterExpanded(!isFilterExpanded)}>
+            <Text style={[styles.expandButtonText, { color: appColors.primary }]}>
+              {isFilterExpanded ? '收起高级筛选' : '展开高级筛选 (分类、难度、标签等)'}
+            </Text>
+          </Pressable>
         </Surface>
 
-        {isRefreshingQuestionList ? (
-          <QuestionBankSkeleton appColors={appColors} />
-        ) : !questions.length ? (
+        {!questions.length ? (
           <EmptyState title="没有匹配题目" description="试试切换分类或修改搜索关键词。" />
         ) : (
           <View style={styles.list}>
-            {questions.map((question, index) => (
-              <Surface key={question.id} style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
-                <View style={styles.cardTopRow}>
-                  <View style={[styles.orderBadge, { backgroundColor: appColors.primarySoft }]}>
-                    <Text style={[styles.orderBadgeText, { color: appColors.primary }]}>{String(index + 1).padStart(2, '0')}</Text>
-                  </View>
-                  <IconButton
-                    icon={question.isFavorite ? 'star' : 'star-outline'}
-                    iconColor={question.isFavorite ? colors.warning : appColors.textSecondary}
-                    containerColor={question.isFavorite ? appColors.tertiarySoft : appColors.surfaceMuted}
-                    onPress={() => toggleFavoriteMutation.mutate(question.id)}
-                  />
-                </View>
-
-                <Text variant="titleMedium" style={[styles.cardTitle, { color: appColors.text }]} onPress={() => router.push({ pathname: '/question/[id]', params: { id: question.id } })}>
-                  {question.title}
-                </Text>
-                <Text style={[styles.meta, { color: appColors.textSecondary }]}>{question.category} · {question.difficulty}</Text>
-
-                <View style={styles.statusRow}>
-                  {question.isLearned ? <Chip compact style={[styles.learnedChip, { backgroundColor: appColors.primarySoft }]} textStyle={[styles.learnedChipText, { color: appColors.primaryDark }]}>已学习</Chip> : null}
-                  {question.needsReview ? (
-                    <Chip compact style={[styles.reviewChip, { backgroundColor: appColors.tertiarySoft }]} textStyle={styles.reviewChipText}>未掌握</Chip>
-                  ) : null}
-                </View>
-
-                <View style={styles.tagRow}>
-                  {question.tags.map((tag) => (
-                    <Chip key={tag} compact style={[styles.tagChip, { backgroundColor: appColors.primarySoft }]} textStyle={[styles.tagText, { color: appColors.primaryDark }]}>{tag}</Chip>
-                  ))}
-                </View>
+            {isRefreshingQuestionList ? (
+              <Surface style={[styles.refreshingBanner, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
+                <Text style={[styles.refreshingText, { color: appColors.textSecondary }]}>正在切换筛选结果...</Text>
               </Surface>
+            ) : null}
+            {questions.map((question, index) => (
+              <Pressable key={question.id} onPress={() => router.push({ pathname: '/question/[id]', params: { id: question.id } })}>
+                {({ pressed }) => (
+                  <Surface style={[
+                    styles.card, 
+                    { 
+                      backgroundColor: pressed ? appColors.surfaceStrong : appColors.surface, 
+                      borderColor: appColors.border, 
+                      shadowColor: appColors.shadow,
+                      transform: [{ scale: pressed ? 0.98 : 1 }]
+                    }
+                  ]} elevation={0}>
+                    <View style={styles.cardHeader}>
+                      <View style={styles.cardHeaderLeft}>
+                        <View style={[styles.orderBadge, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.primarySoft }]}>
+                          <Text style={[styles.orderBadgeText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryDark }]}>#{String(index + 1).padStart(2, '0')}</Text>
+                        </View>
+                        {!!(question.category || question.difficulty) && (
+                          <View style={[styles.metaBadge, { backgroundColor: appColors.isDark ? '#2A2542' : appColors.surfaceMuted, borderColor: appColors.border }]}>
+                            <Text style={[styles.metaBadgeText, { color: appColors.textSecondary }]}>
+                              {[question.category, question.difficulty].filter(Boolean).join(' · ')}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <IconButton
+                        icon={question.isFavorite ? 'star' : 'star-outline'}
+                        iconColor={question.isFavorite ? colors.warning : appColors.textSecondary}
+                        size={20}
+                        style={styles.favoriteButton}
+                        onPress={() => toggleFavoriteMutation.mutate(question.id)}
+                      />
+                    </View>
+
+                    <Text variant="titleMedium" style={[styles.cardTitle, { color: appColors.text }]} numberOfLines={3}>
+                      {question.title}
+                    </Text>
+
+                    {!!(question.isLearned || question.needsReview || question.tags?.length) && (
+                      <View style={styles.cardFooter}>
+                        {!!(question.isLearned || question.needsReview) && (
+                          <View style={styles.statusRow}>
+                            {question.isLearned ? (
+                              <View style={[styles.smallChip, { backgroundColor: appColors.isDark ? '#3A345C' : appColors.primarySoft }]}>
+                                <Text style={[styles.smallChipText, { color: appColors.isDark ? '#F5F2FF' : appColors.primaryDark }]}>已学习</Text>
+                              </View>
+                            ) : null}
+                            {question.needsReview ? (
+                              <View style={[styles.smallChip, { backgroundColor: appColors.tertiarySoft }]}>
+                                <Text style={[styles.smallChipText, { color: colors.danger }]}>未掌握</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        )}
+                        {!!question.tags?.length && (
+                          <View style={styles.tagRow}>
+                            {question.tags.map((tag) => (
+                              <View key={tag} style={[styles.smallChip, styles.tagOutline, { borderColor: appColors.border, backgroundColor: appColors.isDark ? '#2A2542' : 'transparent' }]}>
+                                <Text style={[styles.smallChipText, { color: appColors.textSecondary }]}>{tag}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </Surface>
+                )}
+              </Pressable>
             ))}
             <Text style={[styles.loadMoreHint, { color: appColors.textSecondary }]}>
               {isLoadingMoreQuestions
@@ -449,9 +516,18 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   hero: {
+    overflow: 'hidden',
     borderRadius: 32,
     padding: spacing.xl,
     gap: spacing.md,
+  },
+  heroGlow: {
+    position: 'absolute',
+    top: -40,
+    right: -28,
+    width: 180,
+    height: 180,
+    borderRadius: 999,
   },
   heroTitle: {
     color: colors.textOnPrimary,
@@ -480,6 +556,22 @@ const styles = StyleSheet.create({
   heroStatLabel: {
     color: 'rgba(255,255,255,0.74)',
     fontSize: 12,
+  },
+  heroMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetaPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroMetaText: {
+    color: colors.textOnPrimary,
+    fontSize: 12,
+    fontWeight: '700',
   },
   filterPanel: {
     borderRadius: 28,
@@ -513,37 +605,61 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  filterBlock: {
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderRadius: 20,
-    padding: spacing.md,
+  expandedFiltersContainer: {
+    gap: spacing.lg,
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(150,150,150,0.2)',
   },
-  filterTitle: {
-    color: colors.text,
+  inlineFilterRow: {
+    gap: spacing.xs,
+  },
+  inlineFilterTitle: {
+    fontSize: 13,
     fontWeight: '800',
+    paddingHorizontal: 4,
+    marginBottom: 4,
   },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  scrollableChips: {
     gap: spacing.sm,
+    paddingRight: spacing.xl,
   },
   filterChip: {
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
   },
+  expandButton: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    marginTop: -spacing.sm,
+  },
+  expandButtonText: {
+    fontWeight: '700',
+    fontSize: 13,
+  },
   list: {
     gap: spacing.md,
   },
+  refreshingBanner: {
+    borderRadius: 16,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+  },
+  refreshingText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   card: {
-    borderRadius: 26,
+    borderRadius: 24,
     padding: spacing.lg,
+    paddingTop: spacing.md + 4,
     backgroundColor: colors.surface,
-    gap: spacing.sm,
+    gap: spacing.md,
     borderWidth: 1,
     shadowOpacity: 1,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 16,
   },
   loadMoreHint: {
     textAlign: 'center',
@@ -553,10 +669,17 @@ const styles = StyleSheet.create({
   skeletonCard: {
     overflow: 'hidden',
   },
-  cardTopRow: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginLeft: -4,
+  },
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
   },
   skeletonTopRow: {
     flexDirection: 'row',
@@ -596,55 +719,57 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   orderBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.primarySoft,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   orderBadgeText: {
-    color: colors.primary,
     fontWeight: '800',
     fontSize: 12,
   },
+  metaBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  metaBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  favoriteButton: {
+    margin: 0,
+    marginRight: -8,
+  },
   cardTitle: {
-    color: colors.text,
     fontWeight: '800',
+    lineHeight: 24,
+    fontSize: 16,
   },
-  meta: {
-    color: colors.textSecondary,
-  },
-  tagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  cardFooter: {
+    marginTop: spacing.xs,
     gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  tagChip: {
-    backgroundColor: colors.primarySoft,
-  },
-  tagText: {
-    color: colors.primaryDark,
-    fontWeight: '700',
   },
   statusRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
-  learnedChip: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primarySoft,
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
   },
-  learnedChipText: {
-    color: colors.primaryDark,
+  smallChip: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  smallChipText: {
+    fontSize: 11,
     fontWeight: '700',
   },
-  reviewChip: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.tertiarySoft,
-  },
-  reviewChipText: {
-    color: colors.danger,
-    fontWeight: '700',
+  tagOutline: {
+    borderWidth: 1,
   },
 });

@@ -89,7 +89,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScreenContainer style={styles.container}>
+    <ScreenContainer edges={['left', 'right', 'bottom']} style={styles.container}>
       <Text variant="headlineSmall" style={[styles.title, { color: appColors.text }]}>设置</Text>
       <Card mode="contained" style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]}>
         <List.Item

@@ -117,7 +117,7 @@ export default function StatsScreen() {
   const isRefreshingViewedRecords = recentViewedQuery.isFetching;
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Surface style={[styles.hero, { backgroundColor: appColors.surfaceStrong, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
           <Text variant="headlineSmall" style={[styles.heroTitle, { color: appColors.text }]}>学习统计</Text>
@@ -144,7 +144,7 @@ export default function StatsScreen() {
               <Text style={[styles.metricLabel, { color: appColors.textSecondary }]}>已学题目</Text>
             </Card.Content>
           </Card>
-          <Card mode="contained" style={[styles.metricCard, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} onPress={() => router.push('/(tabs)/favorites')}>
+          <Card mode="contained" style={[styles.metricCard, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} onPress={() => router.push('/favorites')}>
             <Card.Content>
               <Text style={[styles.metricValue, { color: appColors.text }]}>{favoriteCount}</Text>
               <Text style={[styles.metricLabel, { color: appColors.textSecondary }]}>收藏题目</Text>
