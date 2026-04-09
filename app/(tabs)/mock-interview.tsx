@@ -1,7 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
+import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState } from 'expo-audio';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Animated, Easing, InteractionManager, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button, Chip, ProgressBar, Surface, Text } from 'react-native-paper';
 
@@ -12,15 +13,11 @@ import { historyApiService } from '@/services/api/history-service';
 import { questionApiService as questionService } from '@/services/api/question-service';
 import type { MockInterviewRecord, Question } from '@/types';
 import { colors, spacing, useAppColors } from '@/theme';
-import { formatDateTime } from '@/utils/format-date-time';
 import { showErrorMessage, showInfoMessage, showSuccessMessage } from '@/utils/feedback';
 
 const defaultCountdownSeconds = 120;
 const ENTRY_DURATION_MS = 360;
 const ENTRY_STAGGER_MS = 80;
-const PRESS_IN_SCALE = 0.985;
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 function FadeInSection({ children, index = 0 }: { children: React.ReactNode; index?: number }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -52,39 +49,23 @@ function FadeInSection({ children, index = 0 }: { children: React.ReactNode; ind
   return <Animated.View style={{ opacity, transform: [{ translateY }] }}>{children}</Animated.View>;
 }
 
-function ScalePressable({ children, onPress, style }: { children: React.ReactNode; onPress?: () => void; style?: object }) {
-  const scale = useRef(new Animated.Value(1)).current;
-
-  const animateScale = (toValue: number) => {
-    Animated.spring(scale, {
-      toValue,
-      tension: 220,
-      friction: 18,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <AnimatedPressable
-      onPress={onPress}
-      onPressIn={() => animateScale(PRESS_IN_SCALE)}
-      onPressOut={() => animateScale(1)}
-      style={[style, { transform: [{ scale }] }]}
-    >
-      {children}
-    </AnimatedPressable>
-  );
-}
-
 export default function MockInterviewScreen() {
   const appColors = useAppColors();
   const queryClient = useQueryClient();
+  const isFocused = useIsFocused();
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder);
+  const player = useAudioPlayer(null);
+  const playerStatus = useAudioPlayerStatus(player);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(defaultCountdownSeconds);
   const [hasStarted, setHasStarted] = useState(false);
+  const [hasCompletedCurrentQuestion, setHasCompletedCurrentQuestion] = useState(false);
   const [hasRecordedCurrentQuestion, setHasRecordedCurrentQuestion] = useState(false);
   const [isSubmittingRound, setIsSubmittingRound] = useState(false);
   const [isAdvancingQuestion, setIsAdvancingQuestion] = useState(false);
+  const [isPreparingRecording, setIsPreparingRecording] = useState(false);
+  const [recordingUri, setRecordingUri] = useState<string | null>(null);
   const [shouldLoadScreenData, setShouldLoadScreenData] = useState(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
 
@@ -105,13 +86,6 @@ export default function MockInterviewScreen() {
     placeholderData: keepPreviousData,
   });
   const recordsQuery = useQuery({ queryKey: ['mock-interview-records'], queryFn: historyApiService.getInterviewRecords, enabled: shouldLoadScreenData, placeholderData: keepPreviousData });
-  const recentRecordQuestionIds = Array.from(new Set((recordsQuery.data ?? []).slice(0, 3).map((record) => record.questionId)));
-  const recentRecordQuestionsQuery = useQuery({
-    queryKey: ['questions-batch', 'mock-records', recentRecordQuestionIds],
-    queryFn: () => questionService.getQuestionsByIds(recentRecordQuestionIds),
-    enabled: shouldLoadScreenData && recentRecordQuestionIds.length > 0,
-    placeholderData: keepPreviousData,
-  });
   const nextQuestionQuery = useQuery({
     queryKey: ['mock-next-question', currentQuestion?.id],
     queryFn: () => questionService.getRandomQuestion(currentQuestion?.id),
@@ -132,13 +106,55 @@ export default function MockInterviewScreen() {
   });
 
   useEffect(() => {
+    if (isFocused || !hasStarted) {
+      return;
+    }
+
+    setHasStarted(false);
+    setHasCompletedCurrentQuestion(false);
+    setRecordingUri(null);
+
+    if (recorder.isRecording) {
+      void recorder.stop().catch(() => undefined);
+    }
+
+    void setAudioModeAsync({
+      allowsRecording: false,
+      playsInSilentMode: true,
+    }).catch(() => undefined);
+  }, [hasStarted, isFocused, recorder]);
+
+  useEffect(() => {
+    if (!isFocused && playerStatus.playing) {
+      player.pause();
+      void player.seekTo(0).catch(() => undefined);
+    }
+  }, [isFocused, player, playerStatus.playing]);
+
+  useEffect(() => {
+    return () => {
+      if (recorder.isRecording) {
+        void recorder.stop().catch(() => undefined);
+      }
+
+      if (playerStatus.playing) {
+        player.pause();
+      }
+
+      void setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      }).catch(() => undefined);
+    };
+  }, [player, playerStatus.playing, recorder]);
+
+  useEffect(() => {
     if (!hasStarted) {
       return;
     }
 
     if (remainingSeconds <= 0) {
-      void completeCurrentQuestion();
-      setHasStarted(false);
+      void handleComplete();
       return;
     }
 
@@ -154,17 +170,19 @@ export default function MockInterviewScreen() {
       setCurrentQuestion(questionQuery.data);
       setRemainingSeconds(defaultCountdownSeconds);
       setHasStarted(false);
+      setHasCompletedCurrentQuestion(false);
       setHasRecordedCurrentQuestion(false);
+      setRecordingUri(null);
     }
   }, [currentQuestion, questionQuery.data]);
 
   const progress = useMemo(() => remainingSeconds / defaultCountdownSeconds, [remainingSeconds]);
 
-  if (!currentQuestion && (questionQuery.isLoading || recordsQuery.isLoading || recentRecordQuestionsQuery.isLoading)) {
+  if (!currentQuestion && (questionQuery.isLoading || recordsQuery.isLoading)) {
     return <LoadingState />;
   }
 
-  if (questionQuery.isError || recordsQuery.isError || recentRecordQuestionsQuery.isError) {
+  if (questionQuery.isError || recordsQuery.isError) {
     return <EmptyState title={emptyStateCopy.mockInterviewLoadFailed.title} description={emptyStateCopy.mockInterviewLoadFailed.description} />;
   }
 
@@ -173,11 +191,6 @@ export default function MockInterviewScreen() {
   }
 
   const question = currentQuestion;
-  const questionMap = new Map(
-    (recentRecordQuestionsQuery.data ?? [])
-      .map((item) => [item.id, item] as const),
-  );
-
   const completeCurrentQuestion = async (input?: { questionId: string; duration: number }) => {
     const questionId = input?.questionId ?? question.id;
     const duration = input?.duration ?? (defaultCountdownSeconds - remainingSeconds);
@@ -195,13 +208,6 @@ export default function MockInterviewScreen() {
       });
 
       queryClient.setQueryData<MockInterviewRecord[]>(['mock-interview-records'], (current = []) => [createdRecord, ...current]);
-      queryClient.setQueryData<Question[]>(['questions-batch', 'mock-records', recentRecordQuestionIds], (current = []) => {
-        if (current.some((item) => item.id === questionId)) {
-          return current;
-        }
-
-        return [question, ...current.filter((item) => item.id !== questionId)].slice(0, 3);
-      });
 
       setHasRecordedCurrentQuestion(true);
       showSuccessMessage('本轮练习已记录。');
@@ -221,18 +227,42 @@ export default function MockInterviewScreen() {
   };
 
   const handleStart = async () => {
-    setHasStarted(true);
-    setHasRecordedCurrentQuestion(false);
+    try {
+      setIsPreparingRecording(true);
 
-    if (!question.isLearned) {
-      await markLearnedMutation.mutateAsync(question.id);
+      const permission = await requestRecordingPermissionsAsync();
+
+      if (!permission.granted) {
+        showErrorMessage('需要麦克风权限后才能开始录音作答。');
+        return;
+      }
+
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecordingUri(null);
+      setHasStarted(true);
+      setHasCompletedCurrentQuestion(false);
+      setHasRecordedCurrentQuestion(false);
+
+      if (!question.isLearned) {
+        await markLearnedMutation.mutateAsync(question.id);
+      }
+
+      showInfoMessage('开始本轮模拟，已同步开启录音。');
+    } catch {
+      showErrorMessage('录音启动失败，请稍后重试。');
+    } finally {
+      setIsPreparingRecording(false);
     }
-
-    showInfoMessage('开始本轮模拟，请按结构化方式作答。');
   };
 
-  const handleNext = async () => {
-    if (isSubmittingRound || isAdvancingQuestion) {
+  const handleComplete = async () => {
+    if (isSubmittingRound || isAdvancingQuestion || !hasStarted) {
       return;
     }
 
@@ -240,17 +270,72 @@ export default function MockInterviewScreen() {
     const duration = defaultCountdownSeconds - remainingSeconds;
 
     setHasStarted(false);
-    setIsAdvancingQuestion(true);
 
-    const completedRecord = await completeCurrentQuestion({ questionId, duration });
+    try {
+      if (recorder.isRecording) {
+        await recorder.stop();
+      }
 
-    if (!completedRecord && !hasRecordedCurrentQuestion) {
-      setHasStarted(true);
-      setIsAdvancingQuestion(false);
+      const latestRecordingUri = recorder.uri ?? recorderState.url ?? null;
+      const completedRecord = await completeCurrentQuestion({ questionId, duration });
+
+      if (!completedRecord && !hasRecordedCurrentQuestion) {
+        setHasStarted(false);
+        return;
+      }
+
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      });
+
+      setRecordingUri(latestRecordingUri);
+      setHasCompletedCurrentQuestion(true);
+      showInfoMessage(latestRecordingUri ? '本题已完成，可以先回听录音再切换下一题。' : '本题已完成。');
+    } catch {
+      showErrorMessage('完成录音失败，请稍后重试。');
+    } finally {
+      if (recorder.isRecording) {
+        await recorder.stop().catch(() => undefined);
+      }
+    }
+  };
+
+  const handlePlayRecording = async () => {
+    if (!recordingUri) {
+      showInfoMessage('当前还没有可播放的录音。');
       return;
     }
 
     try {
+      if (playerStatus.playing) {
+        player.pause();
+        await player.seekTo(0);
+        showInfoMessage('已停止当前录音播放。');
+        return;
+      }
+
+      player.replace({ uri: recordingUri });
+      player.play();
+    } catch {
+      showErrorMessage('录音播放失败，请稍后重试。');
+    }
+  };
+
+  const handleNextQuestion = async () => {
+    if (isAdvancingQuestion) {
+      return;
+    }
+
+    const questionId = question.id;
+    setIsAdvancingQuestion(true);
+
+    try {
+      if (playerStatus.playing) {
+        player.pause();
+        await player.seekTo(0);
+      }
+
       const nextQuestion = nextQuestionQuery.data ?? await queryClient.fetchQuery({
         queryKey: ['mock-next-question', questionId],
         queryFn: () => questionService.getRandomQuestion(questionId),
@@ -260,19 +345,15 @@ export default function MockInterviewScreen() {
       if (nextQuestion?.id) {
         setCurrentQuestion(nextQuestion);
         setRemainingSeconds(defaultCountdownSeconds);
+        setHasStarted(false);
+        setHasCompletedCurrentQuestion(false);
         setHasRecordedCurrentQuestion(false);
+        setRecordingUri(null);
         showInfoMessage('已切换到下一题。');
       }
     } finally {
       setIsAdvancingQuestion(false);
     }
-  };
-
-  const handleRestart = () => {
-    setRemainingSeconds(defaultCountdownSeconds);
-    setHasStarted(false);
-    setHasRecordedCurrentQuestion(false);
-    showInfoMessage('已重新开始本轮模拟。');
   };
 
   return (
@@ -344,53 +425,66 @@ export default function MockInterviewScreen() {
 
         <FadeInSection index={2}>
         <View style={styles.actionContainer}>
-          {!hasStarted ? (
-            <Button mode="contained" buttonColor={appColors.primary} labelStyle={{ fontWeight: '800', fontSize: 16 }} style={styles.bigPrimaryButton} onPress={() => void handleStart()} loading={isAdvancingQuestion} disabled={isAdvancingQuestion}>
-              {isAdvancingQuestion ? '切换下一题...' : '开始作答 (2分钟)'}
-            </Button>
+          {!hasStarted && !hasCompletedCurrentQuestion ? (
+            <View style={styles.activeActionsRow}>
+              <Button
+                mode="outlined"
+                textColor={appColors.text}
+                style={[styles.halfButton, { borderColor: appColors.border, backgroundColor: appColors.surfaceMuted }]}
+                onPress={() => void handleNextQuestion()}
+                loading={isAdvancingQuestion}
+                disabled={isPreparingRecording || isAdvancingQuestion}>
+                {isAdvancingQuestion ? '切换中...' : '切换题目'}
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={appColors.primary}
+                labelStyle={{ fontWeight: '800', fontSize: 16 }}
+                style={styles.halfButton}
+                onPress={() => void handleStart()}
+                loading={isPreparingRecording}
+                disabled={isPreparingRecording || isAdvancingQuestion}>
+                {isPreparingRecording ? '准备录音中...' : '开始作答'}
+              </Button>
+            </View>
+          ) : hasStarted ? (
+            <View style={styles.activeActionsRow}>
+              <Button mode="contained" buttonColor="#10B981" style={styles.fullWidthButton} onPress={() => void handleComplete()} loading={isSubmittingRound} disabled={isSubmittingRound}>
+                {isSubmittingRound ? '提交中...' : '完成此题'}
+              </Button>
+            </View>
           ) : (
             <View style={styles.activeActionsRow}>
-              <Button mode="outlined" textColor={appColors.text} style={[styles.halfButton, { borderColor: appColors.border, backgroundColor: appColors.surfaceMuted }]} onPress={handleRestart}>
-                重答
+              <Button
+                mode="outlined"
+                icon="microphone"
+                textColor={appColors.text}
+                style={[styles.halfButton, { borderColor: appColors.border, backgroundColor: appColors.surfaceMuted }]}
+                onPress={() => void handlePlayRecording()}
+                disabled={!recordingUri}>
+                {playerStatus.playing ? '停止播放' : '播放录音'}
               </Button>
-              <Button mode="contained" buttonColor="#10B981" style={styles.halfButton} onPress={() => void handleNext()} loading={isSubmittingRound} disabled={isSubmittingRound}>
-                {isSubmittingRound ? '提交中...' : '完成此题'}
+              <Button mode="contained" buttonColor={appColors.primary} style={styles.halfButton} onPress={() => void handleNextQuestion()} loading={isAdvancingQuestion} disabled={isAdvancingQuestion}>
+                {isAdvancingQuestion ? '切换中...' : '切换下一题'}
               </Button>
             </View>
           )}
         </View>
         </FadeInSection>
 
-        {recordsQuery.data?.length ? (
+        {hasCompletedCurrentQuestion ? (
           <FadeInSection index={3}>
-          <Surface style={[styles.historyCard, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
-            <View style={styles.historyHeader}>
-              <View>
-                <Text variant="titleMedium" style={[styles.historyTitle, { color: appColors.text }]}>最近练习</Text>
-                <Text style={[styles.historySubtitle, { color: appColors.textSecondary }]}>回看最近几轮输出，保持节奏和手感。</Text>
-              </View>
+          <Surface style={[styles.answerCard, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
+            <View style={styles.answerHeader}>
+              <Text variant="titleMedium" style={[styles.answerTitle, { color: appColors.text }]}>参考答案</Text>
+              <Chip compact style={[styles.answerChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.primaryDark }}>
+                完成后解锁
+              </Chip>
             </View>
-            {recordsQuery.data.slice(0, 3).map((record, index) => (
-              <ScalePressable key={record.id} onPress={() => router.push({ pathname: '/question/[id]', params: { id: record.questionId } })} style={[styles.historyTimelineItem, index === 2 ? styles.lastItem : null]}>
-                <View style={styles.historyTimelineRail}>
-                  <View style={[styles.historyTimelineDot, { backgroundColor: appColors.primary }]} />
-                  {index !== 2 ? <View style={[styles.historyTimelineLine, { backgroundColor: appColors.border }]} /> : null}
-                </View>
-                <View style={[styles.historyItemCard, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
-                  <View style={styles.historyItemTopRow}>
-                    <Text style={[styles.historyLabel, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
-                    <View style={[styles.historyValuePill, { backgroundColor: appColors.primarySoft }]}> 
-                      <Text style={[styles.historyValue, { color: appColors.primaryDark }]}>{record.duration}s</Text>
-                    </View>
-                  </View>
-                  <View style={styles.historyTagRow}>
-                    <Chip compact style={[styles.historyChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>{questionMap.get(record.questionId)?.category ?? '未知分类'}</Chip>
-                    <Chip compact style={[styles.historyChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>{questionMap.get(record.questionId)?.difficulty ?? 'unknown'}</Chip>
-                  </View>
-                  <Text style={[styles.historyDate, { color: appColors.textSecondary }]}>{formatDateTime(record.startedAt)}</Text>
-                </View>
-              </ScalePressable>
-            ))}
+            <Text style={[styles.answerHint, { color: appColors.textSecondary }]}>先回听自己的表达，再对照这版答案看是否遗漏了关键点。</Text>
+            <View style={[styles.answerPanel, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+              <Text style={[styles.answerBody, { color: appColors.text }]}>{question.answer}</Text>
+            </View>
           </Surface>
           </FadeInSection>
         ) : null}
@@ -545,109 +639,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     marginTop: -spacing.sm,
   },
-  bigPrimaryButton: {
-    borderRadius: 999,
-    paddingVertical: 8,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.6,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-  },
   activeActionsRow: {
     flexDirection: 'row',
     gap: spacing.md,
   },
-  halfButton: {
+  fullWidthButton: {
     flex: 1,
     borderRadius: 999,
     paddingVertical: 6,
   },
-  historyCard: {
+  answerCard: {
     borderRadius: 28,
     padding: spacing.xl,
     backgroundColor: colors.surface,
     gap: spacing.md,
     borderWidth: 1,
-    borderColor: '#E7E1FF',
   },
-  historyHeader: {
-    gap: 4,
-  },
-  historyTitle: {
-    color: colors.text,
-    fontWeight: '800',
-  },
-  historySubtitle: {
-    fontSize: 12,
-  },
-  historyTimelineItem: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    paddingBottom: spacing.md,
-    marginBottom: spacing.md,
-  },
-  historyTimelineRail: {
-    alignItems: 'center',
-    width: 18,
-  },
-  historyTimelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    marginTop: 10,
-  },
-  historyTimelineLine: {
-    flex: 1,
-    width: 2,
-    marginTop: 6,
-    borderRadius: 999,
-  },
-  historyItemCard: {
-    flex: 1,
-    borderRadius: 20,
-    padding: spacing.md,
-    borderWidth: 1,
-    gap: spacing.sm,
-  },
-  historyItemTopRow: {
+  answerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: spacing.md,
+    alignItems: 'center',
+    gap: spacing.sm,
   },
-  lastItem: {
-    paddingBottom: 0,
-    marginBottom: 0,
-    borderBottomWidth: 0,
-  },
-  historyMain: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  historyLabel: {
-    color: colors.text,
-    fontWeight: '700',
-  },
-  historyValuePill: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.primarySoft,
-  },
-  historyValue: {
-    color: colors.primaryDark,
+  answerTitle: {
     fontWeight: '800',
   },
-  historyDate: {
-    color: colors.textSecondary,
-    fontSize: 12,
+  answerChip: {
+    alignSelf: 'flex-start',
   },
-  historyTagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
+  answerHint: {
+    lineHeight: 22,
   },
-  historyChip: {
-    backgroundColor: colors.surfaceMuted,
+  answerPanel: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    borderWidth: 1,
+  },
+  answerBody: {
+    lineHeight: 24,
+    fontSize: 15,
+  },
+  halfButton: {
+    flex: 1,
+    borderRadius: 999,
+    paddingVertical: 6,
   },
 });

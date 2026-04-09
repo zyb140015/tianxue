@@ -1,19 +1,20 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Surface, Text } from 'react-native-paper';
 import { z } from 'zod';
 
 import { Input, ScreenContainer } from '@/components/common';
 import { routes } from '@/constants/routes';
 import { useAuthStore } from '@/store/use-auth-store';
-import { colors, spacing, useAppColors } from '@/theme';
+import { radius, spacing, useAppColors } from '@/theme';
 import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
+
+const BRAND_LOGO = require('../../assets/branding/splash-logo.png');
 
 const loginSchema = z.object({
   identifier: z.string().trim().min(1, '请输入手机号或邮箱'),
@@ -53,127 +54,97 @@ export default function LoginScreen() {
   return (
     <ScreenContainer style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardWrap}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-      <View style={styles.hero}>
-        <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.logo, { shadowColor: appColors.shadow }]}>
-          <View style={styles.logoRing} />
-          <View style={styles.logoDot} />
-        </LinearGradient>
+        <View style={styles.stage}>
+          <View style={[styles.glow, styles.glowTop, { backgroundColor: appColors.primarySoft }]} />
+          <View style={[styles.glow, styles.glowBottom, { backgroundColor: appColors.overlayMint }]} />
+          <Surface style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
+            <View style={styles.hero}>
+              <View style={[styles.logoWrap, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+                <Image source={BRAND_LOGO} style={styles.logo} resizeMode="contain" />
+              </View>
+              <View style={[styles.badge, { backgroundColor: appColors.primarySoft }]}>
+                <Text style={[styles.badgeText, { color: appColors.primary }]}>WELCOME BACK</Text>
+              </View>
+              <Text style={[styles.title, { color: appColors.text }]}>欢迎回来</Text>
+              <Text style={[styles.subtitle, { color: appColors.textSecondary }]}>继续你的学习进度</Text>
+            </View>
 
-        <Text style={[styles.brand, { color: appColors.primaryLight }]}>天学</Text>
-        <Text style={[styles.title, { color: appColors.text }]}>让每一次练习，都更接近拿下 offer</Text>
-        <Text style={[styles.subtitle, { color: appColors.textSecondary }]}>用更顺手的题库、模拟与复习节奏，把学习状态重新拉回正轨。</Text>
-        <View style={styles.heroTags}>
-          <View style={[styles.heroTag, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
-            <Text style={[styles.heroTagText, { color: appColors.primary }]}>高频题库</Text>
-          </View>
-          <View style={[styles.heroTag, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
-            <Text style={[styles.heroTagText, { color: appColors.primary }]}>模拟输出</Text>
-          </View>
-          <View style={[styles.heroTag, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
-            <Text style={[styles.heroTagText, { color: appColors.primary }]}>收藏复习</Text>
-          </View>
-        </View>
-      </View>
+            <View style={[styles.divider, { backgroundColor: appColors.border }]} />
 
-      <Surface style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
-        <View style={styles.cardTop}>
-          <View style={[styles.badge, { backgroundColor: appColors.primarySoft }] }>
-            <Text style={[styles.badgeText, { color: appColors.primary }]}>学习账号登录</Text>
-          </View>
-          <Text style={[styles.cardTitle, { color: appColors.text }]}>进入今天的学习流</Text>
-          <Text style={[styles.cardDescription, { color: appColors.textSecondary }]}>登录后继续上次进度，直接开始刷题、模拟或复习收藏内容。</Text>
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: appColors.text }]}>手机号或邮箱</Text>
-          <Controller
-            control={control}
-            name="identifier"
-            render={({ field: { onChange, onBlur, value } }) => (
-                <Input
-                  placeholder="请输入手机号或邮箱"
-                  placeholderTextColor={appColors.inputPlaceholder}
-                  keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                onBlur={onBlur}
-                onChangeText={onChange}
-                value={value}
-                  style={[styles.input, { backgroundColor: appColors.inputBackground, borderColor: appColors.inputBorder, color: appColors.text }]}
+            <View style={styles.form}>
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: appColors.text }]}>账号</Text>
+                <Controller
+                  control={control}
+                  name="identifier"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <Input
+                      placeholder="手机号或邮箱"
+                      placeholderTextColor={appColors.inputPlaceholder}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                      style={[styles.input, { backgroundColor: appColors.inputBackground, borderColor: appColors.inputBorder, color: appColors.text }]}
+                    />
+                  )}
                 />
-              )}
-          />
-          <HelperText type="error" visible={Boolean(errors.identifier)} style={styles.helperText}>
-            {errors.identifier?.message}
-          </HelperText>
+                <HelperText type="error" visible={Boolean(errors.identifier)} style={styles.helperText}>
+                  {errors.identifier?.message}
+                </HelperText>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: appColors.text }]}>密码</Text>
+                <Controller
+                  control={control}
+                  name="password"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <View style={styles.passwordInputWrapper}>
+                      <Input
+                        placeholder="请输入密码"
+                        placeholderTextColor={appColors.inputPlaceholder}
+                        secureTextEntry={!isPasswordVisible}
+                        autoCorrect={false}
+                        onBlur={onBlur}
+                        onChangeText={onChange}
+                        value={value}
+                        style={[styles.input, styles.passwordInput, { backgroundColor: appColors.inputBackground, borderColor: appColors.inputBorder, color: appColors.text }]}
+                      />
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={isPasswordVisible ? '隐藏密码' : '显示密码'}
+                        onPress={() => setIsPasswordVisible((current) => !current)}
+                        style={styles.passwordToggle}>
+                        <MaterialCommunityIcons color={appColors.textSecondary} name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'} size={20} />
+                      </Pressable>
+                    </View>
+                  )}
+                />
+                <HelperText type="error" visible={Boolean(errors.password)} style={styles.helperText}>
+                  {errors.password?.message}
+                </HelperText>
+              </View>
+
+              <Button
+                mode="contained"
+                buttonColor={appColors.primary}
+                onPress={onSubmit}
+                loading={isSubmitting}
+                disabled={isSubmitting}
+                contentStyle={styles.primaryButtonContent}
+                style={styles.primaryButton}>
+                登录
+              </Button>
+
+              <Button mode="text" textColor={appColors.primary} onPress={() => router.push(routes.register)}>
+                没有账号？去注册
+              </Button>
+            </View>
+          </Surface>
         </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: appColors.text }]}>密码</Text>
-          <Controller
-            control={control}
-            name="password"
-            render={({ field: { onChange, onBlur, value } }) => (
-                <View style={styles.passwordInputWrapper}>
-                  <Input
-                    placeholder="请输入密码"
-                    placeholderTextColor={appColors.inputPlaceholder}
-                    secureTextEntry={!isPasswordVisible}
-                    autoCorrect={false}
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    value={value}
-                    style={[styles.input, styles.passwordInput, { backgroundColor: appColors.inputBackground, borderColor: appColors.inputBorder, color: appColors.text }]}
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={isPasswordVisible ? '隐藏密码' : '显示密码'}
-                    onPress={() => setIsPasswordVisible((current) => !current)}
-                    style={styles.passwordToggle}>
-                    <MaterialCommunityIcons color={appColors.textSecondary} name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'} size={22} />
-                  </Pressable>
-                </View>
-              )}
-          />
-          <HelperText type="error" visible={Boolean(errors.password)} style={styles.helperText}>
-            {errors.password?.message}
-          </HelperText>
-        </View>
-
-        <Button
-          mode="contained"
-          buttonColor={appColors.primary}
-          onPress={onSubmit}
-          loading={isSubmitting}
-          disabled={isSubmitting}
-          contentStyle={styles.buttonContent}
-          style={[styles.button, { shadowColor: appColors.shadow }]}>
-          立即进入天学
-        </Button>
-
-        <Button mode="text" textColor={appColors.primary} onPress={() => router.push(routes.register)}>
-          还没有账号？去注册
-        </Button>
-
-        <View style={[styles.features, { borderTopColor: appColors.border }] }>
-          <View style={styles.featureItem}>
-            <Text style={[styles.featureTitle, { color: appColors.primary }]}>题库</Text>
-            <Text style={[styles.featureText, { color: appColors.textSecondary }]}>高频知识点</Text>
-          </View>
-          <View style={[styles.featureDivider, { backgroundColor: appColors.border }]} />
-          <View style={styles.featureItem}>
-            <Text style={[styles.featureTitle, { color: appColors.primary }]}>模拟</Text>
-            <Text style={[styles.featureText, { color: appColors.textSecondary }]}>结构化输出</Text>
-          </View>
-          <View style={[styles.featureDivider, { backgroundColor: appColors.border }]} />
-          <View style={styles.featureItem}>
-            <Text style={[styles.featureTitle, { color: appColors.primary }]}>收藏</Text>
-            <Text style={[styles.featureText, { color: appColors.textSecondary }]}>复习节奏</Text>
-          </View>
-        </View>
-      </Surface>
-      </ScrollView>
       </KeyboardAvoidingView>
     </ScreenContainer>
   );
@@ -181,195 +152,125 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: spacing.md,
+    paddingVertical: spacing.sm,
   },
   keyboardWrap: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
+  stage: {
+    flex: 1,
     justifyContent: 'center',
-    gap: spacing.xl,
-    paddingBottom: spacing.xl,
+    position: 'relative',
+  },
+  glow: {
+    position: 'absolute',
+    borderRadius: 999,
+    opacity: 0.8,
+  },
+  glowTop: {
+    top: 52,
+    right: -20,
+    width: 110,
+    height: 110,
+  },
+  glowBottom: {
+    left: -26,
+    bottom: 90,
+    width: 118,
+    height: 118,
+  },
+  card: {
+    borderRadius: 32,
+    borderWidth: 1,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    gap: 14,
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
   },
   hero: {
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.xl,
+    gap: 7,
   },
-  logo: {
-    width: 74,
-    height: 74,
-    borderRadius: 24,
+  logoWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.sm,
-    shadowColor: colors.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
   },
-  logoRing: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    borderWidth: 4,
-    borderColor: colors.textOnPrimary,
-    transform: [{ rotate: '14deg' }],
-  },
-  logoDot: {
-    position: 'absolute',
-    top: 14,
-    left: 16,
-    width: 12,
-    height: 12,
-    borderRadius: 999,
-    backgroundColor: colors.textOnPrimary,
-  },
-  brand: {
-    color: colors.primaryLight,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 4,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 32,
-    fontWeight: '800',
-    textAlign: 'center',
-    maxWidth: 320,
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    lineHeight: 23,
-    textAlign: 'center',
-    maxWidth: 300,
-  },
-  heroTags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  heroTag: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: 'rgba(255,255,255,0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(108,92,231,0.08)',
-  },
-  heroTagText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  card: {
-    borderRadius: 30,
-    padding: spacing.xl,
-    backgroundColor: colors.surface,
-    gap: spacing.md,
-    borderWidth: 1,
-    shadowColor: colors.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 14 },
-  },
-  cardTop: {
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
+  logo: {
+    width: 42,
+    height: 42,
   },
   badge: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   badgeText: {
-    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.8,
+  },
+  title: {
+    fontSize: 26,
+    lineHeight: 31,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+  },
+  subtitle: {
     fontSize: 12,
-    fontWeight: '800',
+    lineHeight: 17,
   },
-  cardTitle: {
-    color: colors.text,
-    fontSize: 19,
-    fontWeight: '800',
+  divider: {
+    width: '100%',
+    height: 1,
+    opacity: 0.7,
   },
-  cardDescription: {
-    color: colors.textSecondary,
-    lineHeight: 21,
-  },
-  fieldGroup: {
+  form: {
     gap: 6,
   },
+  fieldGroup: {
+    gap: 2,
+  },
   fieldLabel: {
-    color: colors.text,
+    fontSize: 13,
     fontWeight: '700',
-    marginBottom: 2,
   },
   input: {
-    minHeight: 56,
-    borderRadius: 18,
-    paddingLeft: 20,
-    paddingRight: 16,
-    backgroundColor: '#F6F7FF',
-    borderColor: '#E4E1F7',
+    minHeight: 48,
+    borderRadius: 14,
+    paddingHorizontal: 16,
   },
   passwordInputWrapper: {
     position: 'relative',
   },
   passwordInput: {
-    paddingRight: 52,
+    paddingRight: 48,
   },
   passwordToggle: {
     position: 'absolute',
-    right: 16,
+    right: 14,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
   helperText: {
-    marginTop: -2,
+    marginTop: -3,
+    paddingHorizontal: 0,
   },
-  button: {
-    borderRadius: 18,
+  primaryButton: {
+    borderRadius: 16,
     overflow: 'hidden',
-    marginTop: spacing.xs,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.7,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    marginTop: 4,
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
   },
-  buttonContent: {
-    paddingVertical: 10,
-  },
-  features: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    marginTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
-  },
-  featureItem: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 4,
-  },
-  featureDivider: {
-    width: 1,
-    backgroundColor: colors.border,
-    marginVertical: 6,
-  },
-  featureTitle: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  featureText: {
-    color: colors.textSecondary,
-    fontSize: 12,
+  primaryButtonContent: {
+    paddingVertical: 7,
   },
 });

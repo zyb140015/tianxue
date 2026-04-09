@@ -34,12 +34,12 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: appColors.background },
           }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="favorites" options={{ headerShown: true, title: '我的收藏' }} />
-          <Stack.Screen name="question/[id]" options={{ headerShown: true, title: '题目详情' }} />
-          <Stack.Screen name="stats/index" options={{ headerShown: true, title: '学习统计' }} />
-          <Stack.Screen name="settings/index" options={{ headerShown: true, title: '设置' }} />
-          <Stack.Screen name="settings/privacy-policy" options={{ headerShown: true, title: '隐私政策' }} />
-          <Stack.Screen name="settings/user-agreement" options={{ headerShown: true, title: '用户协议' }} />
+          <Stack.Screen name="favorites" options={{ headerShown: false }} />
+          <Stack.Screen name="question/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="stats/index" options={{ headerShown: false }} />
+          <Stack.Screen name="settings/index" options={{ headerShown: false }} />
+          <Stack.Screen name="settings/privacy-policy" options={{ headerShown: false }} />
+          <Stack.Screen name="settings/user-agreement" options={{ headerShown: false }} />
         </Stack>
         <FeedbackSnackbar />
       </QueryClientProvider>

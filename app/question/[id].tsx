@@ -5,12 +5,29 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button, Chip, Surface, Text } from 'react-native-paper';
 
-import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
+import { AppTopBar, EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { emptyStateCopy } from '@/constants/empty-state-copy';
 import { historyApiService } from '@/services/api/history-service';
 import { questionApiService as questionService } from '@/services/api/question-service';
 import { colors, spacing, useAppColors } from '@/theme';
 import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
+
+type SelfAssessment = 'strong' | 'partial' | 'stuck';
+
+const selfAssessmentCopy: Record<SelfAssessment, { title: string; description: string }> = {
+  strong: {
+    title: '回答比较完整',
+    description: '你的表达已经比较接近标准答案，下一步可以重点优化语言组织和案例细节。',
+  },
+  partial: {
+    title: '答对了一部分',
+    description: '说明你已经有基础框架了，建议对照标准答案补齐遗漏点，再重新复述一遍。',
+  },
+  stuck: {
+    title: '这题还需要复习',
+    description: '先把标准答案拆成 3 到 4 个关键词，再合上答案用自己的话重新讲一次，吸收会更快。',
+  },
+};
 
 export default function QuestionDetailScreen() {
   const appColors = useAppColors();
@@ -18,6 +35,8 @@ export default function QuestionDetailScreen() {
   const queryClient = useQueryClient();
   const isPracticeMode = params.mode === 'practice';
   const [isNavigatingQuestion, setIsNavigatingQuestion] = useState(false);
+  const [hasUnlockedAnswer, setHasUnlockedAnswer] = useState(false);
+  const [selfAssessment, setSelfAssessment] = useState<SelfAssessment | null>(null);
 
   const questionQuery = useQuery({
     queryKey: ['question-detail', params.id],
@@ -82,8 +101,19 @@ export default function QuestionDetailScreen() {
 
   useEffect(() => {
     if (questionQuery.data?.id) {
-      void historyApiService.addViewedRecord(questionQuery.data.id);
+      void historyApiService.addViewedRecord(questionQuery.data.id).then(async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['stats-home'] }),
+          queryClient.invalidateQueries({ queryKey: ['stats-profile'] }),
+          queryClient.invalidateQueries({ queryKey: ['recent-viewed-questions'] }),
+        ]);
+      });
     }
+  }, [queryClient, questionQuery.data?.id]);
+
+  useEffect(() => {
+    setHasUnlockedAnswer(false);
+    setSelfAssessment(null);
   }, [questionQuery.data?.id]);
 
   if (!questionQuery.data && (questionQuery.isLoading || relatedQuestionsQuery.isLoading || navigationQuery.isLoading)) {
@@ -102,6 +132,7 @@ export default function QuestionDetailScreen() {
   const relatedQuestions = relatedQuestionsQuery.data ?? [];
   const previousQuestion = navigationQuery.data?.previous ?? null;
   const nextQuestion = navigationQuery.data?.next ?? null;
+  const selfAssessmentResult = selfAssessment ? selfAssessmentCopy[selfAssessment] : null;
 
   const handleGoNext = async () => {
     if (isNavigatingQuestion) {
@@ -138,7 +169,8 @@ export default function QuestionDetailScreen() {
   };
 
   return (
-    <ScreenContainer edges={['left', 'right', 'bottom']}>
+    <ScreenContainer edges={['top', 'left', 'right', 'bottom']}>
+      <AppTopBar title="题目详情" />
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={appColors.isDark ? ['#2B2645', '#332D52'] : ['#F4F1FF', '#E7E1FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { borderColor: appColors.border }]}> 
           <View style={[styles.heroGlow, { backgroundColor: appColors.overlayOrb }]} />
@@ -244,9 +276,64 @@ export default function QuestionDetailScreen() {
         </Surface>
         <Surface style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
           <Text style={[styles.sectionTitle, { color: appColors.primary }]}>答案</Text>
-          <View style={[styles.contentPanel, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
-            <Text style={[styles.body, { color: appColors.text }]}>{question.answer}</Text>
-          </View>
+          {!hasUnlockedAnswer ? (
+            <View style={[styles.answerLockPanel, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+              <Text style={[styles.answerLockTitle, { color: appColors.text }]}>先自己作答，再看标准答案</Text>
+              <Text style={[styles.answerLockDescription, { color: appColors.textSecondary }]}>这样更接近真实面试，也更容易判断自己到底是“会看”还是“会讲”。</Text>
+              <Button mode="contained" buttonColor={appColors.primary} style={styles.unlockButton} onPress={() => setHasUnlockedAnswer(true)}>
+                我已作答，展开答案与自评
+              </Button>
+            </View>
+          ) : (
+            <View style={styles.answerSection}>
+              <View style={[styles.contentPanel, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}> 
+                <Text style={[styles.body, { color: appColors.text }]}>{question.answer}</Text>
+              </View>
+
+              <View style={[styles.selfAssessmentPanel, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+                <Text style={[styles.selfAssessmentTitle, { color: appColors.text }]}>自评结果</Text>
+                <Text style={[styles.selfAssessmentDescription, { color: appColors.textSecondary }]}>选一个最贴近你刚才真实表现的状态。</Text>
+                <View style={styles.selfAssessmentActions}>
+                  <Chip
+                    selected={selfAssessment === 'strong'}
+                    showSelectedCheck={false}
+                    selectedColor="#FFFFFF"
+                    style={[styles.selfAssessmentChip, { backgroundColor: selfAssessment === 'strong' ? appColors.primary : appColors.primarySoft }]}
+                    textStyle={{ color: selfAssessment === 'strong' ? '#FFFFFF' : appColors.text }}
+                    onPress={() => setSelfAssessment('strong')}>
+                    答得不错
+                  </Chip>
+                  <Chip
+                    selected={selfAssessment === 'partial'}
+                    showSelectedCheck={false}
+                    selectedColor="#FFFFFF"
+                    style={[styles.selfAssessmentChip, { backgroundColor: selfAssessment === 'partial' ? appColors.primary : appColors.primarySoft }]}
+                    textStyle={{ color: selfAssessment === 'partial' ? '#FFFFFF' : appColors.text }}
+                    onPress={() => setSelfAssessment('partial')}>
+                    答出一部分
+                  </Chip>
+                  <Chip
+                    selected={selfAssessment === 'stuck'}
+                    showSelectedCheck={false}
+                    selectedColor="#FFFFFF"
+                    style={[styles.selfAssessmentChip, { backgroundColor: selfAssessment === 'stuck' ? colors.danger : appColors.primarySoft }]}
+                    textStyle={{ color: selfAssessment === 'stuck' ? '#FFFFFF' : appColors.text }}
+                    onPress={() => setSelfAssessment('stuck')}>
+                    没答出来
+                  </Chip>
+                </View>
+
+                {selfAssessmentResult ? (
+                  <View style={[styles.selfAssessmentResult, { backgroundColor: appColors.surface, borderColor: appColors.border }]}>
+                    <Text style={[styles.selfAssessmentResultTitle, { color: appColors.text }]}>{selfAssessmentResult.title}</Text>
+                    <Text style={[styles.selfAssessmentResultDescription, { color: appColors.textSecondary }]}>{selfAssessmentResult.description}</Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.selfAssessmentPlaceholder, { color: appColors.textSecondary }]}>完成自评后，这里会给出一条针对性的复习提示。</Text>
+                )}
+              </View>
+            </View>
+          )}
         </Surface>
 
         {relatedQuestions.length ? (
@@ -360,6 +447,61 @@ const styles = StyleSheet.create({
     color: colors.text,
     lineHeight: 24,
     fontSize: 15,
+  },
+  answerSection: {
+    gap: spacing.md,
+  },
+  answerLockPanel: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+  },
+  answerLockTitle: {
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  answerLockDescription: {
+    lineHeight: 22,
+  },
+  unlockButton: {
+    borderRadius: 18,
+  },
+  selfAssessmentPanel: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+  },
+  selfAssessmentTitle: {
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  selfAssessmentDescription: {
+    lineHeight: 22,
+  },
+  selfAssessmentActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  selfAssessmentChip: {
+    borderRadius: 999,
+  },
+  selfAssessmentResult: {
+    borderRadius: 18,
+    padding: spacing.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+  },
+  selfAssessmentResultTitle: {
+    fontWeight: '800',
+  },
+  selfAssessmentResultDescription: {
+    lineHeight: 22,
+  },
+  selfAssessmentPlaceholder: {
+    lineHeight: 22,
   },
   actions: {
     gap: spacing.sm,

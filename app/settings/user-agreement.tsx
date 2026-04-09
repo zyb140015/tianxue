@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 
-import { ScreenContainer } from '@/components/common';
+import { AppTopBar, ScreenContainer } from '@/components/common';
 import { legalLastUpdatedAt, userAgreementSections } from '@/constants/legal';
 import { colors, spacing, useAppColors } from '@/theme';
 
@@ -9,9 +9,9 @@ export default function UserAgreementScreen() {
   const appColors = useAppColors();
 
   return (
-    <ScreenContainer edges={['left', 'right', 'bottom']} style={styles.container}>
+    <ScreenContainer edges={['top', 'left', 'right', 'bottom']} style={styles.container}>
+      <AppTopBar title="用户协议" />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text variant="headlineSmall" style={[styles.title, { color: appColors.text }]}>用户协议</Text>
         <Text style={[styles.meta, { color: appColors.textSecondary }]}>更新日期：{legalLastUpdatedAt}</Text>
         <Text style={[styles.intro, { color: appColors.textSecondary }]}>请在使用天学前认真阅读本协议。你使用本应用，即表示你已阅读、理解并同意受本协议约束。</Text>
 
@@ -35,10 +35,6 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.lg,
     paddingBottom: spacing.xl,
-  },
-  title: {
-    color: colors.text,
-    fontWeight: '700',
   },
   meta: {
     color: colors.textSecondary,

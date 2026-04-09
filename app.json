@@ -16,7 +16,14 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "允许天学访问麦克风，用于录制你的模拟面试作答。",
+          "recordAudioAndroid": true
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,

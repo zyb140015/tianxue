@@ -8,10 +8,12 @@ import { Avatar, Button, Chip, Surface, Text } from 'react-native-paper';
 import { LoadingState, ScreenContainer } from '@/components/common';
 import { useTabScrollReset } from '@/hooks/use-tab-scroll-reset';
 import { routes } from '@/constants/routes';
+import { questionApiService as questionService } from '@/services/api/question-service';
 import { statsApiService } from '@/services/api/stats-service';
 import { useAuthStore } from '@/store/use-auth-store';
 import { colors, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
+import { calculateLearningStreakDays } from '@/utils/learning-streak';
 
 function getAvatarLabel(avatar: string | null | undefined, name: string) {
   const trimmedAvatar = avatar?.trim();
@@ -46,17 +48,27 @@ export default function ProfileScreen() {
   const profileDashboardQuery = useQuery({ queryKey: ['stats-profile'], queryFn: statsApiService.getProfileDashboard, enabled: shouldLoadScreenData });
   const logout = useAuthStore((state) => state.logout);
 
-  if (profileDashboardQuery.isLoading) {
+  const dashboard = profileDashboardQuery.data;
+  const recentRecords = dashboard?.recentRecords ?? [];
+  const recentViewed = dashboard?.recentViewed ?? [];
+  const profileQuestionIds = Array.from(new Set([...recentRecords.map((record) => record.questionId), ...recentViewed.map((record) => record.questionId)]));
+  const profileQuestionsQuery = useQuery({
+    queryKey: ['questions-batch', 'profile', profileQuestionIds],
+    queryFn: () => questionService.getQuestionsByIds(profileQuestionIds),
+    enabled: shouldLoadScreenData && profileQuestionIds.length > 0,
+  });
+
+  if (profileDashboardQuery.isLoading || profileQuestionsQuery.isLoading) {
     return <LoadingState />;
   }
 
-  const dashboard = profileDashboardQuery.data;
   const displayName = dashboard?.user.name ?? session?.userName ?? '学习用户';
   const avatarLabel = getAvatarLabel(dashboard?.user.avatar ?? session?.userAvatar, displayName);
-  const recentRecords = dashboard?.recentRecords ?? [];
-  const recentViewed = dashboard?.recentViewed ?? [];
-  const questionMap = new Map((dashboard?.recentQuestions ?? []).map((question) => [question.id, question] as const));
+  const questionMap = new Map(
+    [...(dashboard?.recentQuestions ?? []), ...(profileQuestionsQuery.data ?? [])].map((question) => [question.id, question] as const),
+  );
   const overview = dashboard?.overview;
+  const streakDays = calculateLearningStreakDays({ recentRecords, recentViewed }) || (dashboard?.user.streakDays ?? 0);
   const totalQuestionCount = overview?.totalQuestionCount ?? 0;
   const learnedCount = overview?.learnedCount ?? dashboard?.user.learnedCount ?? 0;
   const needsReviewCount = overview?.needsReviewCount ?? 0;
@@ -71,7 +83,7 @@ export default function ProfileScreen() {
             <Avatar.Text size={74} label={avatarLabel} color={appColors.primaryDark} style={styles.avatar} />
             <View style={styles.heroInfo}>
                <Text variant="headlineSmall" style={styles.name}>{displayName}</Text>
-                <Text style={styles.heroMeta}>连续学习 {dashboard?.user.streakDays} 天</Text>
+                <Text style={styles.heroMeta}>连续学习 {streakDays} 天</Text>
             </View>
           </View>
 
@@ -111,7 +123,7 @@ export default function ProfileScreen() {
             recentRecords.map((record, index) => (
               <Pressable key={record.id} onPress={() => router.push({ pathname: '/question/[id]', params: { id: record.questionId } })} style={[styles.recordItem, index === recentRecords.length - 1 ? styles.lastItem : null]}>
                 <View style={styles.recordMain}>
-                  <Text style={[styles.recordTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
+                  <Text numberOfLines={2} style={[styles.recordTitle, { color: appColors.text }]}>{questionMap.get(record.questionId)?.title ?? record.questionId}</Text>
                   <Text style={[styles.recordMeta, { color: appColors.textSecondary }]}>{formatDateTime(record.startedAt)}</Text>
                   <View style={styles.recordTagRow}>
                     <Chip compact style={[styles.recordChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>{questionMap.get(record.questionId)?.category ?? '未知分类'}</Chip>
@@ -246,6 +258,7 @@ const styles = StyleSheet.create({
   },
   recordMain: {
     flex: 1,
+    minWidth: 0,
     gap: spacing.xs,
   },
   recordTitle: {
@@ -265,6 +278,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
   },
   recordDurationPill: {
+    flexShrink: 0,
+    alignSelf: 'flex-start',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,

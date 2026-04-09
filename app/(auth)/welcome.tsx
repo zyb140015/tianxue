@@ -1,11 +1,12 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import { Button, Surface, Text } from 'react-native-paper';
 
 import { ScreenContainer } from '@/components/common';
 import { useAuthStore } from '@/store/use-auth-store';
-import { colors, spacing, useAppColors } from '@/theme';
+import { radius, spacing, useAppColors } from '@/theme';
+
+const BRAND_LOGO = require('../../assets/branding/splash-logo.png');
 
 export default function WelcomeScreen() {
   const appColors = useAppColors();
@@ -18,147 +19,150 @@ export default function WelcomeScreen() {
 
   return (
     <ScreenContainer style={styles.container}>
-      <View style={styles.heroWrap}>
-        <View style={[styles.bgOrbLeft, { backgroundColor: appColors.overlayMint }]} />
-        <View style={[styles.bgOrbRight, { backgroundColor: appColors.tertiary }]} />
-        <View style={[styles.bgRing, { borderColor: appColors.overlayRing }]} />
+      <View style={styles.stage}>
+        <View style={[styles.glow, styles.glowTop, { backgroundColor: appColors.primarySoft }]} />
+        <View style={[styles.glow, styles.glowBottom, { backgroundColor: appColors.overlayMint }]} />
+        <View style={[styles.ring, styles.ringTop, { borderColor: appColors.overlayRing }]} />
 
-        <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.logoCard}>
-          <View style={styles.logoSquare} />
-          <View style={styles.logoCircle} />
-          <View style={styles.logoAccent} />
-        </LinearGradient>
+        <Surface style={[styles.card, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
+          <View style={[styles.logoWrap, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+            <Image source={BRAND_LOGO} style={styles.logo} resizeMode="contain" />
+          </View>
 
-        <Text style={[styles.brand, { color: appColors.primaryLight } ]}>天学</Text>
-        <Text variant="displaySmall" style={[styles.title, { color: appColors.text }]}>把刷题这件事，做得像一个认真设计过的产品</Text>
-        <Text variant="bodyLarge" style={[styles.description, { color: appColors.textSecondary }] }>
-          用更轻盈的视觉和更明确的节奏感，完成题库、收藏、模拟面试和学习管理。
-        </Text>
+          <View style={[styles.badge, { backgroundColor: appColors.primarySoft }]}>
+            <Text style={[styles.badgeText, { color: appColors.primary }]}>TIANXUE</Text>
+          </View>
+
+          <View style={styles.copy}>
+            <Text style={[styles.title, { color: appColors.text }]}>前端面试练习</Text>
+            <Text style={[styles.description, { color: appColors.textSecondary }]}>题库、模拟与复盘，放进一个安静清爽的学习空间。</Text>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: appColors.border }]} />
+
+          <View style={styles.buttonGroup}>
+            <Button
+              mode="contained"
+              buttonColor={appColors.primary}
+              onPress={() => router.push('/(auth)/login')}
+              contentStyle={styles.primaryButtonContent}
+              style={styles.primaryButton}>
+              登录开始练习
+            </Button>
+            <Button mode="text" textColor={appColors.primary} onPress={() => router.push('/(auth)/register')}>
+              创建账号
+            </Button>
+          </View>
+        </Surface>
       </View>
-
-      <Surface style={[styles.infoCard, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
-        <Text variant="titleMedium" style={[styles.infoTitle, { color: appColors.text }]}>这一版包含</Text>
-        <Text variant="bodyMedium" style={[styles.infoText, { color: appColors.textSecondary }]}>紫色渐变主视觉、悬浮导航和更统一的内容卡片</Text>
-        <Text variant="bodyMedium" style={[styles.infoText, { color: appColors.textSecondary }]}>题库、首页、收藏、模拟面试、个人页已同步升级</Text>
-        <Text variant="bodyMedium" style={[styles.infoText, { color: appColors.textSecondary }]}>现在从登录进入，就能看到整套新的“天学”风格</Text>
-      </Surface>
-
-      <Button mode="contained" buttonColor={appColors.primary} onPress={() => router.push('/(auth)/login')} contentStyle={styles.buttonContent}>
-        进入天学
-      </Button>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    justifyContent: 'space-between',
-    gap: spacing.xl,
-    paddingTop: spacing.xl,
+    paddingVertical: spacing.sm,
   },
-  heroWrap: {
+  stage: {
+    flex: 1,
+    justifyContent: 'center',
     position: 'relative',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
   },
-  bgOrbLeft: {
+  glow: {
     position: 'absolute',
-    left: -18,
-    top: 24,
-    width: 120,
-    height: 120,
     borderRadius: 999,
+    opacity: 0.8,
   },
-  bgOrbRight: {
-    position: 'absolute',
-    right: 16,
-    top: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 999,
+  glowTop: {
+    top: 56,
+    right: -18,
+    width: 104,
+    height: 104,
   },
-  bgRing: {
+  glowBottom: {
+    left: -28,
+    bottom: 74,
+    width: 124,
+    height: 124,
+  },
+  ring: {
     position: 'absolute',
-    right: -28,
-    top: -10,
-    width: 180,
-    height: 180,
     borderRadius: 999,
     borderWidth: 1,
   },
-  logoCard: {
-    width: 108,
-    height: 108,
+  ringTop: {
+    top: 8,
+    right: 18,
+    width: 196,
+    height: 196,
+  },
+  card: {
     borderRadius: 32,
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 26,
+    alignItems: 'center',
+    gap: 14,
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  logoWrap: {
+    width: 82,
+    height: 82,
+    borderRadius: 24,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.md,
   },
-  logoSquare: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.92)',
-    transform: [{ rotate: '10deg' }],
+  logo: {
+    width: 50,
+    height: 50,
   },
-  logoCircle: {
-    position: 'absolute',
-    top: 22,
-    left: 24,
-    width: 16,
-    height: 16,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
+  badge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
   },
-  logoAccent: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 18,
-    height: 18,
-    borderRadius: 6,
-    backgroundColor: colors.warning,
-  },
-  brand: {
-    color: colors.primaryLight,
-    fontSize: 16,
+  badgeText: {
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 6,
-    marginBottom: spacing.xs,
+    letterSpacing: 2.2,
+  },
+  copy: {
+    alignItems: 'center',
+    gap: 8,
   },
   title: {
-    color: colors.text,
-    textAlign: 'center',
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: '800',
+    letterSpacing: -0.8,
   },
   description: {
-    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
     textAlign: 'center',
-    lineHeight: 25,
-    maxWidth: 320,
+    maxWidth: 260,
   },
-  infoCard: {
-    borderRadius: 28,
-    padding: spacing.xl,
-    backgroundColor: colors.surface,
-    gap: spacing.md,
-    borderWidth: 1,
-    shadowOpacity: 1,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 24,
+  divider: {
+    width: '100%',
+    height: 1,
+    opacity: 0.7,
   },
-  infoTitle: {
-    color: colors.text,
-    fontWeight: '800',
+  buttonGroup: {
+    width: '100%',
+    gap: 2,
+    marginTop: 4,
   },
-  infoText: {
-    color: colors.textSecondary,
-    lineHeight: 22,
+  primaryButton: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
   },
-  buttonContent: {
-    paddingVertical: spacing.sm,
+  primaryButtonContent: {
+    paddingVertical: 8,
   },
 });

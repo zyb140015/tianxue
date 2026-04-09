@@ -1,3 +1,4 @@
+export { AppTopBar } from './app-top-bar';
 export { Button } from './button/button';
 export { Card } from './card/card';
 export { EmptyState } from './empty-state/empty-state';

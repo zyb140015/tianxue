@@ -5,7 +5,7 @@ import { InteractionManager, Pressable, ScrollView, StyleSheet, Text, View } fro
 import { useEffect, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
+import { AppTopBar, EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { questionApiService as questionService } from '@/services/api/question-service';
 import { colors, spacing, useAppColors } from '@/theme';
 import { showErrorMessage, showSuccessMessage } from '@/utils/feedback';
@@ -69,7 +69,8 @@ export default function FavoritesScreen() {
   const favorites = favoritesQuery.data ?? [];
 
   return (
-    <ScreenContainer edges={['left', 'right', 'bottom']} style={styles.screen}>
+    <ScreenContainer edges={['top', 'left', 'right', 'bottom']} style={styles.screen}>
+      <AppTopBar title="我的收藏" />
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={appColors.isDark ? ['#2B2645', '#332D52'] : [colors.primarySoft, '#EAE6FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { borderColor: appColors.border }]}> 
           <Text style={[styles.heroTitle, { color: appColors.text }]}>我的收藏</Text>

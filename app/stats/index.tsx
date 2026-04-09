@@ -4,7 +4,7 @@ import { InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'rea
 import { useEffect, useState } from 'react';
 import { Button, Card, Chip, IconButton, ProgressBar, Surface, Text } from 'react-native-paper';
 
-import { EmptyState, LoadingState, ScreenContainer } from '@/components/common';
+import { AppTopBar, EmptyState, LoadingState, ScreenContainer } from '@/components/common';
 import { emptyStateCopy } from '@/constants/empty-state-copy';
 import { historyApiService } from '@/services/api/history-service';
 import { questionApiService as questionService } from '@/services/api/question-service';
@@ -44,6 +44,7 @@ export default function StatsScreen() {
   const recentViewedQuery = useQuery({ queryKey: ['recent-viewed-questions'], queryFn: historyApiService.getViewedRecords, enabled: shouldLoadScreenData });
   const overviewQuery = useQuery({ queryKey: ['stats-overview'], queryFn: statsApiService.getOverview, enabled: shouldLoadScreenData });
   const categoryProgressQuery = useQuery({ queryKey: ['stats-categories'], queryFn: statsApiService.getCategories, enabled: shouldLoadScreenData });
+  const homeDashboardQuery = useQuery({ queryKey: ['stats-home'], queryFn: statsApiService.getHomeDashboard, enabled: shouldLoadScreenData });
   const recordQuestionIds = recordsQuery.data?.map((record) => record.questionId) ?? [];
   const viewedQuestionIds = recentViewedQuery.data?.map((record) => record.questionId) ?? [];
   const questionIds = Array.from(new Set([...recordQuestionIds, ...viewedQuestionIds]));
@@ -93,11 +94,11 @@ export default function StatsScreen() {
     onError: () => showErrorMessage('删除浏览记录失败，请稍后重试。'),
   });
 
-  if (recordsQuery.isLoading || recentViewedQuery.isLoading || overviewQuery.isLoading || categoryProgressQuery.isLoading || questionsQuery.isLoading) {
+  if (recordsQuery.isLoading || recentViewedQuery.isLoading || overviewQuery.isLoading || categoryProgressQuery.isLoading || questionsQuery.isLoading || homeDashboardQuery.isLoading) {
     return <LoadingState />;
   }
 
-  if (questionsQuery.isError || recordsQuery.isError || recentViewedQuery.isError || overviewQuery.isError || categoryProgressQuery.isError) {
+  if (questionsQuery.isError || recordsQuery.isError || recentViewedQuery.isError || overviewQuery.isError || categoryProgressQuery.isError || homeDashboardQuery.isError) {
     return <EmptyState title={emptyStateCopy.statsLoadFailed.title} description={emptyStateCopy.statsLoadFailed.description} />;
   }
 
@@ -112,12 +113,40 @@ export default function StatsScreen() {
   const progress = totalQuestionCount ? Math.round((learnedCount / totalQuestionCount) * 100) : 0;
   const averageDuration = overviewQuery.data?.averageInterviewDuration ?? 0;
   const categoryProgressList = categoryProgressQuery.data ?? [];
-  const isRefreshingSummary = questionsQuery.isFetching || overviewQuery.isFetching || categoryProgressQuery.isFetching;
+  const homeDashboard = homeDashboardQuery.data;
+  const recentlyTouchedQuestionIds = new Set([...recordQuestionIds, ...viewedQuestionIds]);
+  const weakestCategories = [...categoryProgressList]
+    .sort((left, right) => {
+      if (right.review !== left.review) {
+        return right.review - left.review;
+      }
+
+      if (left.progress !== right.progress) {
+        return left.progress - right.progress;
+      }
+
+      return right.total - left.total;
+    })
+    .slice(0, 3);
+  const weakestCategory = weakestCategories[0] ?? null;
+  const suggestionQuestions = [
+    homeDashboard?.recommendedQuestion ?? null,
+    ...(homeDashboard?.reviewQuestions ?? []),
+    ...(homeDashboard?.recentQuestions ?? []),
+  ]
+    .filter((question, index, current): question is NonNullable<typeof question> => Boolean(question) && current.findIndex((item) => item?.id === question?.id) === index)
+    .filter((question) => !recentlyTouchedQuestionIds.has(question.id))
+    .slice(0, 3);
+  const todayActionText = weakestCategory
+    ? `先补 ${weakestCategory.category}，这一类当前还有 ${weakestCategory.review} 道未掌握题。`
+    : '先从最近浏览过但还没吃透的题里，挑 1 到 2 道重新复述。';
+  const isRefreshingSummary = questionsQuery.isFetching || overviewQuery.isFetching || categoryProgressQuery.isFetching || homeDashboardQuery.isFetching;
   const isRefreshingInterviewRecords = recordsQuery.isFetching;
   const isRefreshingViewedRecords = recentViewedQuery.isFetching;
 
   return (
-    <ScreenContainer edges={['left', 'right', 'bottom']}>
+    <ScreenContainer edges={['top', 'left', 'right', 'bottom']}>
+      <AppTopBar title="学习统计" />
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Surface style={[styles.hero, { backgroundColor: appColors.surfaceStrong, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
           <Text variant="headlineSmall" style={[styles.heroTitle, { color: appColors.text }]}>学习统计</Text>
@@ -173,6 +202,110 @@ export default function StatsScreen() {
             </Card.Content>
           </Card>
         </View>
+
+        {isRefreshingSummary ? <StatsPanelSkeleton appColors={appColors} /> : (
+          <View>
+            <Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
+              <Card.Content style={styles.panelContent}>
+                <View style={styles.panelHeader}>
+                  <Text variant="titleMedium" style={[styles.panelTitle, { color: appColors.text }]}>下一步建议</Text>
+                  <Chip compact style={[styles.heroChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>
+                    今日行动
+                  </Chip>
+                </View>
+
+                <View style={[styles.actionSummaryCard, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+                  <Text style={[styles.actionSummaryTitle, { color: appColors.text }]}>
+                    {weakestCategory ? `${weakestCategory.category} 是当前最需要补的分类` : '先集中处理未掌握题'}
+                  </Text>
+                  <Text style={[styles.actionSummaryText, { color: appColors.textSecondary }]}>{todayActionText}</Text>
+                  {weakestCategory ? (
+                    <View style={styles.actionChipRow}>
+                      <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>
+                        进度 {weakestCategory.progress}%
+                      </Chip>
+                      <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>
+                        未掌握 {weakestCategory.review}
+                      </Chip>
+                    </View>
+                  ) : null}
+                  <Button
+                    mode="contained"
+                    buttonColor={appColors.primary}
+                    onPress={() =>
+                      weakestCategory
+                        ? router.push({
+                            pathname: '/(tabs)/question-bank',
+                            params: {
+                              category: weakestCategory.category,
+                              needsReview: weakestCategory.review > 0 ? 'true' : 'false',
+                            },
+                          })
+                        : router.push('/(tabs)/question-bank')
+                    }>
+                    {weakestCategory ? `去补 ${weakestCategory.category}` : '去题库开始'}
+                  </Button>
+                </View>
+
+                <View style={styles.coachGrid}>
+                  <View style={[styles.coachCard, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+                    <Text style={[styles.coachLabel, { color: appColors.textSecondary }]}>哪类题最拖后腿</Text>
+                    <Text style={[styles.coachValue, { color: appColors.text }]}>
+                      {weakestCategory ? weakestCategory.category : '暂无明显短板'}
+                    </Text>
+                    <Text style={[styles.coachMeta, { color: appColors.textSecondary }]}>
+                      {weakestCategory ? `未掌握 ${weakestCategory.review} 道，当前进度 ${weakestCategory.progress}%` : '继续保持当前节奏。'}
+                    </Text>
+                  </View>
+                  <View style={[styles.coachCard, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+                    <Text style={[styles.coachLabel, { color: appColors.textSecondary }]}>今天建议怎么刷</Text>
+                    <Text style={[styles.coachValue, { color: appColors.text }]}>
+                      {needsReviewCount > 0 ? '先复习后扩展' : '先做 3 道新题'}
+                    </Text>
+                    <Text style={[styles.coachMeta, { color: appColors.textSecondary }]}>
+                      {needsReviewCount > 0 ? '先处理未掌握题，再补 1 道新题巩固。' : '保持输出节奏，优先形成自己的表达模板。'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.suggestionBlock}>
+                  <View style={styles.panelHeader}>
+                    <Text variant="titleMedium" style={[styles.panelTitle, { color: appColors.text }]}>今天建议刷这 3 道</Text>
+                    <Button compact mode="text" textColor={appColors.primary} onPress={() => router.push('/(tabs)/question-bank')}>
+                      看更多
+                    </Button>
+                  </View>
+                  {suggestionQuestions.length ? (
+                    suggestionQuestions.map((question, index) => (
+                      <Pressable
+                        key={question.id}
+                        style={[styles.suggestionItem, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}
+                        onPress={() => router.push({ pathname: '/question/[id]', params: { id: question.id, mode: 'practice' } })}>
+                        <View style={styles.suggestionMain}>
+                          <Text style={[styles.suggestionIndex, { color: appColors.primary }]}>推荐 {index + 1}</Text>
+                          <Text style={[styles.rowTitle, { color: appColors.text }]}>{question.title}</Text>
+                          <Text style={[styles.coachMeta, { color: appColors.textSecondary }]}>
+                            {question.needsReview ? '优先补薄弱项' : '适合继续保持手感'}
+                          </Text>
+                        </View>
+                        <View style={styles.actionChipRow}>
+                          <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>
+                            {question.category || '未分类'}
+                          </Chip>
+                          <Chip compact style={[styles.rowChip, { backgroundColor: appColors.primarySoft }]} textStyle={{ color: appColors.text }}>
+                            {question.difficulty}
+                          </Chip>
+                        </View>
+                      </Pressable>
+                    ))
+                  ) : (
+                    <Text style={[styles.emptyText, { color: appColors.textSecondary }]}>今天推荐题已经基本看过了，可以回到题库按薄弱分类继续刷题。</Text>
+                  )}
+                </View>
+              </Card.Content>
+            </Card>
+          </View>
+        )}
 
         {isRefreshingSummary ? <StatsPanelSkeleton appColors={appColors} /> : <View><Card mode="contained" style={[styles.panel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]}>
           <Card.Content style={styles.panelContent}>
@@ -368,6 +501,59 @@ const styles = StyleSheet.create({
   panelTitle: {
     color: colors.text,
     fontWeight: '800',
+  },
+  actionSummaryCard: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+  },
+  actionSummaryTitle: {
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  actionSummaryText: {
+    lineHeight: 22,
+  },
+  actionChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  coachGrid: {
+    gap: spacing.md,
+  },
+  coachCard: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    borderWidth: 1,
+    gap: spacing.xs,
+  },
+  coachLabel: {
+    fontSize: 12,
+  },
+  coachValue: {
+    fontWeight: '800',
+    fontSize: 18,
+  },
+  coachMeta: {
+    lineHeight: 20,
+  },
+  suggestionBlock: {
+    gap: spacing.md,
+  },
+  suggestionItem: {
+    borderRadius: 20,
+    padding: spacing.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+  },
+  suggestionMain: {
+    gap: spacing.xs,
+  },
+  suggestionIndex: {
+    fontWeight: '800',
+    fontSize: 12,
   },
   rowItem: {
     flexDirection: 'row',

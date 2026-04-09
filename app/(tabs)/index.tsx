@@ -1,19 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { Animated, Easing, InteractionManager, Pressable, StyleSheet, View } from 'react-native';
-import type { StyleProp, ViewStyle } from 'react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ScrollView as RNScrollView } from 'react-native';
-import type { ReactNode } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Avatar, Button, Chip, Surface, Text } from 'react-native-paper';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Animated, Easing, InteractionManager, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import type { ScrollView as RNScrollView } from 'react-native';
+import { Surface, Text } from 'react-native-paper';
 
 import { LoadingState, ScreenContainer } from '@/components/common';
 import { useTabScrollReset } from '@/hooks/use-tab-scroll-reset';
 import { questionApiService as questionService } from '@/services/api/question-service';
 import { statsApiService } from '@/services/api/stats-service';
-import { colors, spacing, useAppColors } from '@/theme';
+import { colors, radius, spacing, useAppColors } from '@/theme';
 import { formatDateTime } from '@/utils/format-date-time';
+import { calculateLearningStreakDays } from '@/utils/learning-streak';
 import { showInfoMessage } from '@/utils/feedback';
 
 const ENTRY_DURATION_MS = 420;
@@ -77,17 +76,6 @@ function ScalePressable({ children, onPress, style }: { children: ReactNode; onP
     >
       {children}
     </AnimatedPressable>
-  );
-}
-
-function HomeSectionSkeleton({ appColors }: { appColors: ReturnType<typeof useAppColors> }) {
-  return (
-    <Surface style={[styles.panelCard, { backgroundColor: appColors.surface, borderColor: appColors.border }]} elevation={0}>
-      <View style={[styles.skeletonLineLong, { backgroundColor: appColors.surfaceMuted }]} />
-      <View style={[styles.skeletonLineShort, { backgroundColor: appColors.surfaceMuted }]} />
-      <View style={[styles.skeletonListItem, { backgroundColor: appColors.primarySoft }]} />
-      <View style={[styles.skeletonListItem, { backgroundColor: appColors.primarySoft }]} />
-    </Surface>
   );
 }
 
@@ -180,15 +168,35 @@ export default function HomeScreen() {
   const learningProgress = totalQuestionCount ? Math.round((learnedCount / totalQuestionCount) * 100) : 0;
   const recentRecords = dashboard?.recentRecords ?? [];
   const recentViewed = dashboard?.recentViewed ?? [];
+  const streakDays = calculateLearningStreakDays({ recentRecords, recentViewed }) || user.streakDays;
   const reviewQuestions = dashboard?.reviewQuestions ?? [];
-  const questionMap = new Map(
-    (dashboard?.recentQuestions ?? [])
-      .map((question) => [question.id, question] as const),
-  );
+  const questionMap = new Map((dashboard?.recentQuestions ?? []).map((question) => [question.id, question] as const));
+  const recentlyViewedIds = new Set(recentViewed.map((item) => item.questionId));
   const isRefreshingHome = homeDashboardQuery.isFetching;
   const continueLearningQuestionId = recentViewed[0]?.questionId ?? reviewQuestions[0]?.id ?? recommendedQuestion?.id ?? null;
   const continueLearningTitle = continueLearningQuestionId ? questionMap.get(continueLearningQuestionId)?.title ?? '继续上次学习内容' : '当前还没有可继续的学习内容';
-  const todayRecommendationTitle = recommendedQuestion?.title ?? '当前暂无推荐题目';
+  const nextRecommendedQuestion =
+    [recommendedQuestion, ...reviewQuestions, ...(dashboard?.recentQuestions ?? [])]
+      .filter((question): question is NonNullable<typeof question> => Boolean(question))
+      .find((question) => !recentlyViewedIds.has(question.id)) ?? null;
+  const todayRecommendationTitle = nextRecommendedQuestion?.title ?? '当前暂无推荐题目';
+  const lastPracticeLabel = recentRecords[0]?.startedAt ? formatDateTime(recentRecords[0].startedAt) : '今天还没有练习记录';
+  const lastViewedLabel = recentViewed[0]?.viewedAt ? formatDateTime(recentViewed[0].viewedAt) : '还没有最近浏览';
+  const progressTrackWidth = `${Math.max(learningProgress, 8)}%` as const;
+  const heroAccentGradient = appColors.isDark
+    ? (['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.04)', 'rgba(255,255,255,0)'] as const)
+    : (['rgba(255,255,255,0.34)', 'rgba(255,255,255,0.1)', 'rgba(255,255,255,0)'] as const);
+  const overviewCards = [
+    { label: '待复习', value: `${needsReviewCount}`, description: '优先回看薄弱题目' },
+    { label: '最近练习', value: `${recentRecords.length}`, description: lastPracticeLabel },
+    { label: '题库分类', value: `${categories.length}`, description: `${favoriteCount} 个收藏在架` },
+  ] as const;
+  const digestRows = [
+    { label: '继续内容', value: continueLearningTitle },
+    { label: '今日推荐', value: todayRecommendationTitle },
+    { label: '最近浏览', value: lastViewedLabel },
+  ] as const;
+
   const canNavigate = () => {
     const now = Date.now();
 
@@ -215,7 +223,7 @@ export default function HomeScreen() {
   };
 
   const handleOpenRecommendedQuestion = () => {
-    if (!recommendedQuestion?.id) {
+    if (!nextRecommendedQuestion?.id) {
       showInfoMessage('当前暂无推荐题目。');
       return;
     }
@@ -225,7 +233,7 @@ export default function HomeScreen() {
     }
 
     showInfoMessage('已打开今日推荐。');
-    router.push({ pathname: '/question/[id]', params: { id: recommendedQuestion.id, mode: 'practice' } });
+    router.push({ pathname: '/question/[id]', params: { id: nextRecommendedQuestion.id, mode: 'practice' } });
   };
 
   const handleStartMockInterview = () => {
@@ -237,13 +245,12 @@ export default function HomeScreen() {
     router.push('/(tabs)/mock-interview');
   };
 
-  const progressTrackWidth = `${Math.max(learningProgress, 8)}%` as const;
   const shimmerStyle = {
     transform: [
       {
         translateX: shimmerProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [-180, 180],
+          outputRange: [-180, 220],
         }),
       },
       {
@@ -252,10 +259,9 @@ export default function HomeScreen() {
     ],
     opacity: shimmerProgress.interpolate({
       inputRange: [0, 0.5, 1],
-      outputRange: [0.18, 0.36, 0.18],
+      outputRange: [0.16, 0.34, 0.16],
     }),
   };
-
 
   return (
     <ScreenContainer>
@@ -268,51 +274,68 @@ export default function HomeScreen() {
       >
         <FadeInSection index={0}>
           <Animated.View style={heroAnimatedStyle}>
-            <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+            <LinearGradient colors={appColors.gradientHero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, { shadowColor: appColors.shadow }]}>
               <View style={styles.heroGrid}>
                 <View style={styles.heroGridLineHorizontal} />
                 <View style={styles.heroGridLineVertical} />
               </View>
               <View style={styles.heroGlow} />
+              <LinearGradient colors={heroAccentGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroLens} />
               <Animated.View style={[styles.heroShimmer, shimmerStyle]} />
 
               <View style={styles.heroTopRow}>
                 <View style={styles.heroBadge}>
-                  <Text style={styles.heroBadgeText}>INTERVIEW OS</Text>
+                  <Text style={styles.heroBadgeText}>DAILY STUDIO</Text>
+                </View>
+                <View style={styles.heroStatusWrap}>
+                  <Text style={styles.heroStatusText}>{isRefreshingHome ? '同步中' : '已就绪'}</Text>
                 </View>
               </View>
 
-              <View style={styles.heroMainRow}>
-                <View style={styles.heroContentColumn}>
-                  <View style={styles.heroTextBlock}>
-                    <Text variant="headlineMedium" style={styles.heroTitle}>你好，{user.name}</Text>
-                    <Text style={styles.heroTitleAccent}>让表达发光。</Text>
-                    <Text variant="bodyLarge" style={styles.heroSubtitle}>今天，先拿下一道题。</Text>
-                  </View>
+              <View style={styles.heroHeader}>
+                <View style={[styles.heroAvatarWrap, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
+                  <Text style={styles.heroAvatar}>{user.avatar}</Text>
+                </View>
+                <View style={styles.heroTitleBlock}>
+                  <Text style={styles.heroEyebrow}>今天的练习台已经展开</Text>
+                  <Text style={styles.heroTitle}>你好，{user.name}</Text>
+                  <Text style={styles.heroTitleAccent}>把答案说得更稳，也更亮一点。</Text>
+                </View>
+              </View>
 
-                  <View style={styles.heroMetaRow}>
-                    <View style={styles.heroMetaPill}>
-                      <Text style={styles.heroMetaText}>{user.streakDays} 天连击</Text>
-                    </View>
-                    <View style={styles.heroMetaPill}>
-                      <Text style={styles.heroMetaText}>{favoriteCount} 个收藏</Text>
-                    </View>
-                    <View style={styles.heroMetaPill}>
-                      <Text style={styles.heroMetaText}>{learningProgress}% 进度</Text>
-                    </View>
-                  </View>
+              <View style={styles.heroMetaRow}>
+                <View style={styles.heroMetaPill}>
+                  <Text style={styles.heroMetaText}>{streakDays} 天连续学习</Text>
+                </View>
+                <View style={styles.heroMetaPill}>
+                  <Text style={styles.heroMetaText}>{favoriteCount} 个重点收藏</Text>
+                </View>
+                <View style={styles.heroMetaPill}>
+                  <Text style={styles.heroMetaText}>{categories.length} 个分类题库</Text>
+                </View>
+              </View>
 
-                  <ScalePressable onPress={handleContinueLearning} style={styles.heroCtaCard}>
-                    <View style={styles.heroCtaRow}>
-                      <View style={styles.heroCtaTextWrap}>
-                        <Text style={styles.heroCtaEyebrow}>继续学习</Text>
-                        <Text numberOfLines={2} style={styles.heroCtaDescription}>{continueLearningTitle}</Text>
-                      </View>
-                      <View style={styles.heroCtaArrowWrap}>
-                        <Text style={styles.heroCtaArrow}>→</Text>
-                      </View>
-                    </View>
+              <View style={styles.heroCardGrid}>
+                <ScalePressable onPress={handleContinueLearning} style={[styles.heroLeadCard, { backgroundColor: 'rgba(255,255,255,0.09)', borderColor: 'rgba(255,255,255,0.12)' }]}>
+                  <Text style={styles.heroCardEyebrow}>继续学习</Text>
+                  <Text numberOfLines={2} style={styles.heroLeadTitle}>{continueLearningTitle}</Text>
+                  <Text numberOfLines={2} style={styles.heroLeadMeta}>从上次停下的位置继续，不需要重新找题。</Text>
+                  <View style={styles.heroCardAction}>
+                    <Text style={styles.heroCardActionText}>马上返回</Text>
+                    <Text style={styles.heroCardArrow}>→</Text>
+                  </View>
+                </ScalePressable>
+
+                <View style={styles.heroSideColumn}>
+                  <ScalePressable onPress={handleOpenRecommendedQuestion} style={[styles.heroMiniCard, { backgroundColor: 'rgba(14,12,30,0.18)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+                    <Text style={styles.heroCardEyebrow}>今日推荐</Text>
+                    <Text numberOfLines={2} style={styles.heroMiniTitle}>{todayRecommendationTitle}</Text>
                   </ScalePressable>
+
+                  <View style={[styles.heroMiniCard, styles.heroNoteCard, { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.08)' }]}>
+                    <Text style={styles.heroCardEyebrow}>今日简报</Text>
+                    <Text style={styles.heroNoteText}>待复习 {needsReviewCount} 题，最近浏览时间是 {lastViewedLabel}。</Text>
+                  </View>
                 </View>
               </View>
 
@@ -324,35 +347,69 @@ export default function HomeScreen() {
                 <View style={styles.heroProgressTrack}>
                   <LinearGradient colors={[colors.tertiary, '#FFD76E', '#FFFFFF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.heroProgressFill, { width: progressTrackWidth }]} />
                 </View>
-              </View>
-
-              <View style={styles.heroStatsRow}>
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>{user.streakDays}</Text>
-                  <Text style={styles.heroStatLabel}>连击</Text>
-                </View>
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>{learnedCount}</Text>
-                  <Text style={styles.heroStatLabel}>已学</Text>
-                </View>
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>{favoriteCount}</Text>
-                  <Text style={styles.heroStatLabel}>收藏</Text>
+                <View style={styles.heroStatsRow}>
+                  <View style={styles.heroStat}>
+                    <Text style={styles.heroStatValue}>{streakDays}</Text>
+                    <Text style={styles.heroStatLabel}>连击天数</Text>
+                  </View>
+                  <View style={styles.heroStat}>
+                    <Text style={styles.heroStatValue}>{learnedCount}</Text>
+                    <Text style={styles.heroStatLabel}>已学题目</Text>
+                  </View>
+                  <View style={styles.heroStat}>
+                    <Text style={styles.heroStatValue}>{favoriteCount}</Text>
+                    <Text style={styles.heroStatLabel}>收藏内容</Text>
+                  </View>
                 </View>
               </View>
 
               <View style={styles.heroDock}>
-                <ScalePressable onPress={handleOpenRecommendedQuestion} style={styles.heroDockPrimaryAction}>
-                  <Text style={styles.heroDockPrimaryLabel}>今日推荐</Text>
+                <ScalePressable onPress={handleStartMockInterview} style={styles.heroDockPrimaryAction}>
+                  <Text style={styles.heroDockPrimaryLabel}>开始模拟</Text>
                 </ScalePressable>
-                <ScalePressable onPress={handleStartMockInterview} style={styles.heroDockSecondaryAction}>
-                  <Text style={styles.heroDockSecondaryLabel}>开始模拟</Text>
-                </ScalePressable>
+                <View style={styles.heroDockCaptionWrap}>
+                  <Text style={styles.heroDockCaption}>今天先把一题讲顺，再把一轮节奏走完整。</Text>
+                </View>
               </View>
             </LinearGradient>
           </Animated.View>
         </FadeInSection>
 
+        <FadeInSection index={1} style={styles.sectionStack}>
+          <Surface style={[styles.infoPanel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
+            <View style={styles.infoPanelHeader}>
+              <Text style={[styles.sectionEyebrow, { color: appColors.primary }]}>HOME DIGEST</Text>
+              <Text style={[styles.sectionTitle, { color: appColors.text }]}>今天的学习概览</Text>
+              <Text style={[styles.sectionDescription, { color: appColors.textSecondary }]}>不改功能，只把首页信息重排成更清晰的战情板。</Text>
+            </View>
+
+            <View style={styles.overviewGrid}>
+              {overviewCards.map((item) => (
+                <View key={item.label} style={[styles.overviewCard, { backgroundColor: appColors.surfaceMuted, borderColor: appColors.border }]}>
+                  <Text style={[styles.overviewLabel, { color: appColors.textSecondary }]}>{item.label}</Text>
+                  <Text style={[styles.overviewValue, { color: appColors.text }]}>{item.value}</Text>
+                  <Text numberOfLines={2} style={[styles.overviewDescription, { color: appColors.textSecondary }]}>{item.description}</Text>
+                </View>
+              ))}
+            </View>
+          </Surface>
+
+          <Surface style={[styles.digestPanel, { backgroundColor: appColors.surface, borderColor: appColors.border, shadowColor: appColors.shadow }]} elevation={0}>
+            <View style={styles.digestHeader}>
+              <Text style={[styles.sectionEyebrow, { color: appColors.primary }]}>FOCUS BOARD</Text>
+              <Text style={[styles.sectionTitle, { color: appColors.text }]}>当前重点</Text>
+            </View>
+
+            <View style={styles.digestList}>
+              {digestRows.map((item, index) => (
+                <View key={item.label} style={[styles.digestItem, index === digestRows.length - 1 ? styles.digestItemLast : null, { borderBottomColor: appColors.border }]}>
+                  <Text style={[styles.digestLabel, { color: appColors.textSecondary }]}>{item.label}</Text>
+                  <Text numberOfLines={2} style={[styles.digestValue, { color: appColors.text }]}>{item.value}</Text>
+                </View>
+              ))}
+            </View>
+          </Surface>
+        </FadeInSection>
       </Animated.ScrollView>
     </ScreenContainer>
   );
@@ -361,20 +418,19 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    justifyContent: 'center',
     gap: spacing.lg,
     paddingTop: spacing.xs,
     paddingBottom: 120,
   },
   hero: {
     overflow: 'hidden',
-    borderRadius: 36,
-    padding: 28,
-    gap: 22,
-    minHeight: 540,
+    borderRadius: 34,
+    padding: 24,
+    gap: 18,
+    minHeight: 620,
     shadowOpacity: 1,
     shadowOffset: { width: 0, height: 20 },
-    shadowRadius: 40,
+    shadowRadius: 42,
   },
   heroGrid: {
     ...StyleSheet.absoluteFillObject,
@@ -384,32 +440,51 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    top: 104,
+    top: 92,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   heroGridLineVertical: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    left: '62%',
+    right: '28%',
     width: 1,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   heroGlow: {
     position: 'absolute',
-    top: -24,
-    right: -12,
-    width: 180,
-    height: 180,
+    top: -28,
+    right: -18,
+    width: 200,
+    height: 200,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroLens: {
+    position: 'absolute',
+    top: 110,
+    right: -40,
+    width: 220,
+    height: 220,
+    borderRadius: 999,
+  },
+  heroShimmer: {
+    position: 'absolute',
+    top: -60,
+    left: 0,
+    width: 120,
+    height: 680,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   heroTopRow: {
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   heroBadge: {
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 12,
     paddingVertical: 6,
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -420,44 +495,57 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1.6,
   },
-  heroShimmer: {
-    position: 'absolute',
-    top: -40,
-    left: 0,
-    width: 140,
-    height: 520,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+  heroStatusWrap: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(17,12,41,0.22)',
   },
-  heroMainRow: {
-    flexDirection: 'column',
+  heroStatusText: {
+    color: colors.textOnPrimary,
+    fontSize: 12,
+    fontWeight: '600',
   },
-  heroContentColumn: {
-    gap: 24,
+  heroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
   },
-  heroTextBlock: {
-    gap: 8,
+  heroAvatarWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  heroAvatar: {
+    fontSize: 30,
+  },
+  heroTitleBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.2,
   },
   heroTitle: {
     color: colors.textOnPrimary,
+    fontSize: 34,
+    lineHeight: 40,
     fontWeight: '800',
-    fontSize: 48,
-    lineHeight: 54,
-    letterSpacing: -1,
+    letterSpacing: -0.8,
   },
   heroTitleAccent: {
     color: colors.textOnPrimary,
-    fontSize: 40,
-    lineHeight: 46,
-    fontWeight: '800',
-    letterSpacing: -0.9,
-    maxWidth: 520,
-  },
-  heroSubtitle: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 16,
-    lineHeight: 24,
-    maxWidth: 300,
-    marginTop: 10,
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: '700',
+    maxWidth: 280,
   },
   heroMetaRow: {
     flexDirection: 'row',
@@ -467,7 +555,7 @@ const styles = StyleSheet.create({
   heroMetaPill: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   heroMetaText: {
@@ -475,44 +563,72 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  heroCtaCard: {
-    borderRadius: 20,
-    padding: 18,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  heroCardGrid: {
+    gap: spacing.sm,
   },
-  heroCtaRow: {
+  heroLeadCard: {
+    borderRadius: 24,
+    padding: spacing.xl,
+    borderWidth: 1,
+    gap: spacing.sm,
+  },
+  heroSideColumn: {
+    gap: spacing.sm,
+  },
+  heroMiniCard: {
+    borderRadius: 22,
+    padding: spacing.lg,
+    borderWidth: 1,
+    gap: spacing.xs,
+  },
+  heroNoteCard: {
+    minHeight: 96,
+    justifyContent: 'center',
+  },
+  heroCardEyebrow: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  heroLeadTitle: {
+    color: colors.textOnPrimary,
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  heroMiniTitle: {
+    color: colors.textOnPrimary,
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '700',
+  },
+  heroLeadMeta: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 14,
+    lineHeight: 21,
+    maxWidth: 280,
+  },
+  heroNoteText: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  heroCardAction: {
+    marginTop: spacing.xs,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
   },
-  heroCtaTextWrap: {
-    flex: 1,
-  },
-  heroCtaEyebrow: {
-    color: 'rgba(255,255,255,0.92)',
+  heroCardActionText: {
+    color: colors.textOnPrimary,
     fontSize: 14,
     fontWeight: '700',
   },
-  heroCtaArrowWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    flexShrink: 0,
-  },
-  heroCtaArrow: {
+  heroCardArrow: {
     color: colors.textOnPrimary,
     fontSize: 18,
     fontWeight: '700',
-  },
-  heroCtaDescription: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6,
   },
   heroProgressShell: {
     gap: spacing.sm,
@@ -531,29 +647,30 @@ const styles = StyleSheet.create({
   heroProgressPercent: {
     color: colors.textOnPrimary,
     fontWeight: '800',
+    fontSize: 14,
   },
   heroProgressTrack: {
     height: PROGRESS_BAR_HEIGHT,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
   heroProgressFill: {
     height: PROGRESS_BAR_HEIGHT,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   heroStatsRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 2,
+    gap: spacing.sm,
+    marginTop: 4,
   },
   heroStat: {
     flex: 1,
-    borderRadius: 14,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    gap: 2,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    gap: 4,
   },
   heroStatValue: {
     color: colors.textOnPrimary,
@@ -565,15 +682,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   heroDock: {
-    flexDirection: 'row',
-    gap: 8,
     marginTop: 'auto',
-    paddingTop: 14,
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
   },
   heroDockPrimaryAction: {
-    flex: 1,
-    minHeight: 50,
-    borderRadius: 16,
+    minHeight: 54,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.96)',
@@ -581,312 +696,102 @@ const styles = StyleSheet.create({
   heroDockPrimaryLabel: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  heroDockSecondaryAction: {
-    minWidth: 116,
-    minHeight: 50,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
+  heroDockCaptionWrap: {
+    borderRadius: 18,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  heroDockSecondaryLabel: {
-    color: colors.textOnPrimary,
-    fontSize: 14,
-    fontWeight: '600',
+  heroDockCaption: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
   },
-  featureCard: {
-    borderRadius: 32,
+  sectionStack: {
+    gap: spacing.lg,
+  },
+  infoPanel: {
+    borderRadius: 28,
     padding: spacing.xl,
-    backgroundColor: colors.surface,
-    gap: spacing.md,
-    shadowColor: colors.shadow,
-    shadowOpacity: 1,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 24,
     borderWidth: 1,
-    overflow: 'hidden',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    gap: spacing.lg,
   },
-  featureAura: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 160,
-  },
-  featureCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-  },
-  featureHeading: {
-    flex: 1,
+  infoPanelHeader: {
     gap: spacing.xs,
   },
-  sectionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
   sectionEyebrow: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  featureTitle: {
-    color: colors.text,
-    fontWeight: '800',
-    lineHeight: 32,
-  },
-  progressBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 22,
-    backgroundColor: colors.tertiarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressValue: {
-    color: colors.tertiary,
-    fontWeight: '800',
-    fontSize: 18,
-  },
-  featureDescription: {
-    color: colors.textSecondary,
-    lineHeight: 22,
-    maxHeight: 88,
-  },
-  featureFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  featureDataStrip: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  featureDataItem: {
-    flex: 1,
-    borderRadius: 18,
-    padding: spacing.md,
-    backgroundColor: 'rgba(108,92,231,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(108,92,231,0.08)',
-    gap: 2,
-  },
-  featureDataValue: {
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  featureDataLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  softChip: {
-    backgroundColor: colors.primarySoft,
-  },
-  softChipText: {
-    color: colors.primaryDark,
-    fontWeight: '700',
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontWeight: '800',
-    lineHeight: 24,
-  },
-  categoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    justifyContent: 'space-between',
-  },
-  categoryCardPressable: {
-    width: '48%',
-    borderRadius: 24,
-    overflow: 'hidden',
-  },
-  categoryCard: {
-    width: '100%',
-    minHeight: 156,
-    borderRadius: 28,
-    padding: spacing.lg,
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.26)',
-  },
-  categoryCount: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  categoryName: {
-    color: colors.text,
-    fontWeight: '800',
-    lineHeight: 24,
-  },
-  categoryMeta: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  panelCard: {
-    borderRadius: 30,
-    padding: spacing.xl,
-    backgroundColor: colors.surface,
-    gap: spacing.md,
-    borderWidth: 1,
-    shadowOpacity: 1,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 24,
-  },
-  quickActionsCard: {
-    borderRadius: 30,
-    padding: spacing.xl,
-    gap: spacing.md,
-    borderWidth: 1,
-    shadowOpacity: 1,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 24,
-  },
-  quickActionsGrid: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: spacing.md,
-  },
-  quickActionPrimary: {
-    borderRadius: 28,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    borderWidth: 1,
-    minHeight: 120,
-    overflow: 'hidden',
-  },
-  quickActionItem: {
-    flex: 1,
-    borderRadius: 24,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    borderWidth: 1,
-    minHeight: 132,
-    overflow: 'hidden',
-  },
-  quickActionSignal: {
-    position: 'absolute',
-    top: -14,
-    right: -18,
-    width: 84,
-    height: 84,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.36)',
-  },
-  quickActionKicker: {
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 1.4,
   },
-  quickActionTitle: {
-    fontSize: 18,
+  sectionTitle: {
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: '800',
   },
-  quickActionPrimaryDescription: {
-    lineHeight: 22,
-    marginTop: spacing.xs,
+  sectionDescription: {
+    fontSize: 14,
+    lineHeight: 21,
   },
-  quickActionDescription: {
-    lineHeight: 22,
-    marginTop: 'auto',
+  overviewGrid: {
+    gap: spacing.sm,
   },
-  listItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingBottom: spacing.md,
-    paddingHorizontal: spacing.sm,
-    paddingTop: spacing.xs,
-    marginBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  overviewCard: {
     borderRadius: 20,
+    borderWidth: 1,
+    padding: spacing.lg,
+    gap: spacing.xs,
   },
-  lastListItem: {
+  overviewLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  overviewValue: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+  },
+  overviewDescription: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  digestPanel: {
+    borderRadius: 28,
+    padding: spacing.xl,
+    borderWidth: 1,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    gap: spacing.lg,
+  },
+  digestHeader: {
+    gap: spacing.xs,
+  },
+  digestList: {
+    gap: spacing.sm,
+  },
+  digestItem: {
+    gap: spacing.xs,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+  },
+  digestItemLast: {
     paddingBottom: 0,
-    marginBottom: 0,
     borderBottomWidth: 0,
   },
-  listItemLeading: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  listIndexBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primarySoft,
-  },
-  listIndexText: {
-    color: colors.primary,
-    fontWeight: '800',
-  },
-  listTextWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  listTitle: {
-    color: colors.text,
+  digestLabel: {
+    fontSize: 12,
     fontWeight: '700',
   },
-  listMeta: {
-    color: colors.textSecondary,
-    fontSize: 12,
-  },
-  listBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.primarySoft,
-  },
-  listBadgeText: {
-    color: colors.primaryDark,
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  reviewChip: {
-    backgroundColor: colors.tertiarySoft,
-  },
-  reviewChipText: {
-    color: colors.danger,
+  digestValue: {
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
-  },
-  smallAvatar: {
-    backgroundColor: colors.primarySoft,
-  },
-  emptyText: {
-    color: colors.textSecondary,
-    lineHeight: 22,
-  },
-  skeletonLineLong: {
-    width: '72%',
-    height: 18,
-    borderRadius: 10,
-  },
-  skeletonLineShort: {
-    width: '42%',
-    height: 14,
-    borderRadius: 8,
-  },
-  skeletonListItem: {
-    height: 56,
-    borderRadius: 18,
   },
 });
